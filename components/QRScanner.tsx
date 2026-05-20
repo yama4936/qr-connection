@@ -51,6 +51,16 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
   const [isStarting, setIsStarting] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [debugStats, setDebugStats] = useState({
+    decodedCount: 0,
+    frameErrorCount: 0,
+    lastFrameError: "",
+  });
+  const debugRef = useRef({
+    decodedCount: 0,
+    frameErrorCount: 0,
+    lastFrameError: "",
+  });
   const [runtimeInfo] = useState<{
     origin: string;
     isSecureContext: boolean;
@@ -129,9 +139,13 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
         fps: 10,
         qrbox: { width: 250, height: 250 },
       };
-      const onScanSuccess = (decodedText: string) => onScan(decodedText);
-      const onScanFrameError = () => {
-        // per-frame decode errors are ignored
+      const onScanSuccess = (decodedText: string) => {
+        debugRef.current.decodedCount += 1;
+        onScan(decodedText);
+      };
+      const onScanFrameError = (errorMessage: string) => {
+        debugRef.current.frameErrorCount += 1;
+        debugRef.current.lastFrameError = errorMessage;
       };
 
       try {
@@ -178,7 +192,12 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
   };
 
   useEffect(() => {
+    const timer = window.setInterval(() => {
+      setDebugStats({ ...debugRef.current });
+    }, 1000);
+
     return () => {
+      window.clearInterval(timer);
       void stopScanner();
     };
   }, []);
@@ -211,6 +230,11 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
           {runtimeInfo.origin}
         </p>
       ) : null}
+      <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+        <p>decoded: {debugStats.decodedCount}</p>
+        <p>frame errors: {debugStats.frameErrorCount}</p>
+        <p className="break-all">last frame error: {debugStats.lastFrameError || "-"}</p>
+      </div>
       {localError ? <p className="text-sm text-red-600">{localError}</p> : null}
     </section>
   );

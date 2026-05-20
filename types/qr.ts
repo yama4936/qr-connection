@@ -13,6 +13,7 @@ export type QRPayload = {
 };
 
 export const PAYLOAD_VERSION = 1 as const;
-export const CHUNK_SIZE = 800;
+// Keep QR density lower for mobile camera stability.
+export const CHUNK_SIZE = 450;
 export const RECOMMENDED_MAX_SIZE = 100 * 1024;
 export const HARD_MAX_SIZE = 300 * 1024;

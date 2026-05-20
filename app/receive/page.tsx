@@ -7,8 +7,36 @@ import { QRScanner } from "@/components/QRScanner";
 import { ResultViewer } from "@/components/ResultViewer";
 import { TransferProgress } from "@/components/TransferProgress";
 import { sha256 } from "@/lib/checksum";
-import { parsePayload, restorePayload } from "@/lib/qrPayload";
+import { parsePayloadDetailed, restorePayload } from "@/lib/qrPayload";
 import type { QRPayloadType } from "@/types/qr";
+
+type ReceiveDebugStats = {
+  parsedOk: number;
+  jsonParseError: number;
+  shapeMismatch: number;
+  invalidTotal: number;
+  invalidIndex: number;
+  ignoredSessionMismatch: number;
+  ignoredTotalMismatch: number;
+  ignoredChecksumMismatch: number;
+  ignoredTypeMismatch: number;
+  duplicateChunk: number;
+  acceptedChunk: number;
+};
+
+const INITIAL_DEBUG_STATS: ReceiveDebugStats = {
+  parsedOk: 0,
+  jsonParseError: 0,
+  shapeMismatch: 0,
+  invalidTotal: 0,
+  invalidIndex: 0,
+  ignoredSessionMismatch: 0,
+  ignoredTotalMismatch: 0,
+  ignoredChecksumMismatch: 0,
+  ignoredTypeMismatch: 0,
+  duplicateChunk: 0,
+  acceptedChunk: 0,
+};
 
 export default function ReceivePage() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -19,10 +47,12 @@ export default function ReceivePage() {
   const [result, setResult] = useState("");
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [debugStats, setDebugStats] = useState<ReceiveDebugStats>(INITIAL_DEBUG_STATS);
   const sessionRef = useRef<string | null>(null);
   const totalRef = useRef(0);
   const checksumRef = useRef<string | null>(null);
   const payloadTypeRef = useRef<QRPayloadType | null>(null);
+  const chunksRef = useRef<Map<number, string>>(new Map());
 
   const receivedIndices = useMemo(
     () => Array.from(chunks.keys()).sort((a, b) => a - b),
@@ -31,10 +61,22 @@ export default function ReceivePage() {
 
   const handleScan = useCallback(
     (qrText: string) => {
-      const payload = parsePayload(qrText);
-      if (!payload) {
+      const parsed = parsePayloadDetailed(qrText);
+      if (!parsed.ok) {
+        if (parsed.issue === "json_parse_error") {
+          setDebugStats((prev) => ({ ...prev, jsonParseError: prev.jsonParseError + 1 }));
+        } else if (parsed.issue === "shape_mismatch") {
+          setDebugStats((prev) => ({ ...prev, shapeMismatch: prev.shapeMismatch + 1 }));
+        } else if (parsed.issue === "invalid_total") {
+          setDebugStats((prev) => ({ ...prev, invalidTotal: prev.invalidTotal + 1 }));
+        } else if (parsed.issue === "invalid_index") {
+          setDebugStats((prev) => ({ ...prev, invalidIndex: prev.invalidIndex + 1 }));
+        }
         return;
       }
+      const payload = parsed.payload;
+
+      setDebugStats((prev) => ({ ...prev, parsedOk: prev.parsedOk + 1 }));
 
       if (!sessionRef.current) {
         sessionRef.current = payload.sessionId;
@@ -49,30 +91,47 @@ export default function ReceivePage() {
       }
 
       if (payload.sessionId !== sessionRef.current) {
+        setDebugStats((prev) => ({
+          ...prev,
+          ignoredSessionMismatch: prev.ignoredSessionMismatch + 1,
+        }));
         return;
       }
 
       if (payload.total !== totalRef.current) {
+        setDebugStats((prev) => ({
+          ...prev,
+          ignoredTotalMismatch: prev.ignoredTotalMismatch + 1,
+        }));
         return;
       }
 
       if (payload.checksum !== checksumRef.current) {
+        setDebugStats((prev) => ({
+          ...prev,
+          ignoredChecksumMismatch: prev.ignoredChecksumMismatch + 1,
+        }));
         return;
       }
 
       if (payload.payloadType !== payloadTypeRef.current) {
+        setDebugStats((prev) => ({
+          ...prev,
+          ignoredTypeMismatch: prev.ignoredTypeMismatch + 1,
+        }));
         return;
       }
 
-      setChunks((prev) => {
-        if (prev.has(payload.index)) {
-          return prev;
-        }
+      if (chunksRef.current.has(payload.index)) {
+        setDebugStats((prev) => ({ ...prev, duplicateChunk: prev.duplicateChunk + 1 }));
+        return;
+      }
 
-        const next = new Map(prev);
-        next.set(payload.index, payload.data);
-        return next;
-      });
+      const next = new Map(chunksRef.current);
+      next.set(payload.index, payload.data);
+      chunksRef.current = next;
+      setChunks(next);
+      setDebugStats((prev) => ({ ...prev, acceptedChunk: prev.acceptedChunk + 1 }));
     },
     [],
   );
@@ -139,10 +198,12 @@ export default function ReceivePage() {
     setTotal(0);
     setChecksum(null);
     setPayloadType(null);
-    setChunks(new Map());
+    chunksRef.current = new Map();
+    setChunks(chunksRef.current);
     setResult("");
     setCopied(false);
     setError(null);
+    setDebugStats(INITIAL_DEBUG_STATS);
   };
 
   return (
@@ -174,6 +235,18 @@ export default function ReceivePage() {
             <p className="mt-2 break-words text-sm text-slate-700">
               {receivedIndices.length > 0 ? receivedIndices.join(", ") : "-"}
             </p>
+          </section>
+          <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-700">デバッグ</h2>
+            <p>parsed ok: {debugStats.parsedOk}</p>
+            <p>json parse error: {debugStats.jsonParseError}</p>
+            <p>shape mismatch: {debugStats.shapeMismatch}</p>
+            <p>invalid total/index: {debugStats.invalidTotal} / {debugStats.invalidIndex}</p>
+            <p>session mismatch: {debugStats.ignoredSessionMismatch}</p>
+            <p>total mismatch: {debugStats.ignoredTotalMismatch}</p>
+            <p>checksum mismatch: {debugStats.ignoredChecksumMismatch}</p>
+            <p>type mismatch: {debugStats.ignoredTypeMismatch}</p>
+            <p>accepted/duplicate: {debugStats.acceptedChunk} / {debugStats.duplicateChunk}</p>
           </section>
           <button
             type="button"

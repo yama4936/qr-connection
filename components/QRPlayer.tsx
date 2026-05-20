@@ -42,7 +42,7 @@ export function QRPlayer({
       JSON.stringify(currentPayload),
       {
         margin: 1,
-        width: 320,
+        width: 420,
         errorCorrectionLevel: "M",
       },
       (error) => {

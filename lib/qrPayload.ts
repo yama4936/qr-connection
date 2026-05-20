@@ -10,6 +10,16 @@ import {
   type QRPayload,
 } from "@/types/qr";
 
+export type ParsePayloadIssue =
+  | "json_parse_error"
+  | "shape_mismatch"
+  | "invalid_total"
+  | "invalid_index";
+
+export type ParsePayloadResult =
+  | { ok: true; payload: QRPayload }
+  | { ok: false; issue: ParsePayloadIssue };
+
 function createSessionId(): string {
   if (globalThis.crypto?.randomUUID) {
     return globalThis.crypto.randomUUID();
@@ -74,23 +84,28 @@ export async function createPayloads(
 }
 
 export function parsePayload(raw: string): QRPayload | null {
+  const result = parsePayloadDetailed(raw);
+  return result.ok ? result.payload : null;
+}
+
+export function parsePayloadDetailed(raw: string): ParsePayloadResult {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!isQRPayload(parsed)) {
-      return null;
+      return { ok: false, issue: "shape_mismatch" };
     }
 
     if (parsed.total <= 0) {
-      return null;
+      return { ok: false, issue: "invalid_total" };
     }
 
     if (parsed.index < 0 || parsed.index >= parsed.total) {
-      return null;
+      return { ok: false, issue: "invalid_index" };
     }
 
-    return parsed;
+    return { ok: true, payload: parsed };
   } catch {
-    return null;
+    return { ok: false, issue: "json_parse_error" };
   }
 }
 
