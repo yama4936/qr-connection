@@ -7,9 +7,73 @@ type QRScannerProps = {
   onError: (message: string) => void;
 };
 
+type QRScannerDebugStats = {
+  decodedCount: number;
+  noCodeFrameCount: number;
+  frameErrorCount: number;
+  lastFrameStatus: string;
+  lastFrameError: string;
+};
+
+type FrameScanError = {
+  type?: number;
+};
+
+const NO_CODE_FOUND_ERROR_TYPE = 2;
+
+const INITIAL_DEBUG_STATS: QRScannerDebugStats = {
+  decodedCount: 0,
+  noCodeFrameCount: 0,
+  frameErrorCount: 0,
+  lastFrameStatus: "待機中",
+  lastFrameError: "",
+};
+
+function createInitialDebugStats(): QRScannerDebugStats {
+  return { ...INITIAL_DEBUG_STATS };
+}
+
+function getCameraErrorName(error: unknown): string {
+  if (error instanceof Error) {
+    return error.name;
+  }
+
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    typeof error.name === "string"
+  ) {
+    return error.name;
+  }
+
+  return "";
+}
+
+function getCameraErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+
+  return "";
+}
+
 function formatCameraError(error: unknown): string {
-  const name = error instanceof Error ? error.name : "";
-  const message = error instanceof Error ? error.message : "";
+  const name = getCameraErrorName(error);
+  const message = getCameraErrorMessage(error);
 
   if (name === "NotAllowedError" || name === "PermissionDeniedError") {
     return "カメラ権限が拒否されています。ブラウザ設定でこのサイトのカメラを許可してください。";
@@ -35,12 +99,32 @@ function formatCameraError(error: unknown): string {
 }
 
 function shouldTryCameraIdFallback(error: unknown): boolean {
-  const name = error instanceof Error ? error.name : "";
+  const name = getCameraErrorName(error);
   return (
     name === "OverconstrainedError" ||
     name === "NotFoundError" ||
     name === "DevicesNotFoundError"
   );
+}
+
+function isNoCodeFoundFrame(
+  errorMessage: string,
+  error?: FrameScanError,
+): boolean {
+  return (
+    error?.type === NO_CODE_FOUND_ERROR_TYPE ||
+    /no multiformat readers|no code found|notfoundexception/i.test(errorMessage)
+  );
+}
+
+function getQrboxSize(
+  viewfinderWidth: number,
+  viewfinderHeight: number,
+): { width: number; height: number } {
+  const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+  const edge = Math.floor(Math.max(100, Math.min(420, minEdge - 24, minEdge * 0.86)));
+
+  return { width: edge, height: edge };
 }
 
 export function QRScanner({ onScan, onError }: QRScannerProps) {
@@ -51,16 +135,10 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
   const [isStarting, setIsStarting] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [debugStats, setDebugStats] = useState({
-    decodedCount: 0,
-    frameErrorCount: 0,
-    lastFrameError: "",
-  });
-  const debugRef = useRef({
-    decodedCount: 0,
-    frameErrorCount: 0,
-    lastFrameError: "",
-  });
+  const [debugStats, setDebugStats] = useState<QRScannerDebugStats>(
+    createInitialDebugStats,
+  );
+  const debugRef = useRef<QRScannerDebugStats>(createInitialDebugStats());
   const [runtimeInfo] = useState<{
     origin: string;
     isSecureContext: boolean;
@@ -129,22 +207,45 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
 
     setLocalError(null);
     setIsStarting(true);
+    debugRef.current = {
+      ...createInitialDebugStats(),
+      lastFrameStatus: "カメラ起動中",
+    };
+    setDebugStats({ ...debugRef.current });
 
     try {
-      const { Html5Qrcode } = await import("html5-qrcode");
+      const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import(
+        "html5-qrcode"
+      );
 
-      const scanner = new Html5Qrcode(containerId);
+      const scanner = new Html5Qrcode(containerId, {
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        verbose: false,
+      });
       scannerRef.current = scanner;
       const scanConfig = {
-        fps: 10,
-        qrbox: { width: 250, height: 250 },
+        fps: 12,
+        qrbox: getQrboxSize,
       };
       const onScanSuccess = (decodedText: string) => {
         debugRef.current.decodedCount += 1;
+        debugRef.current.lastFrameStatus = "読み取り成功";
+        debugRef.current.lastFrameError = "";
         onScan(decodedText);
       };
-      const onScanFrameError = (errorMessage: string) => {
+      const onScanFrameError = (
+        errorMessage: string,
+        error?: FrameScanError,
+      ) => {
+        if (isNoCodeFoundFrame(errorMessage, error)) {
+          debugRef.current.noCodeFrameCount += 1;
+          debugRef.current.lastFrameStatus = "QR探索中";
+          debugRef.current.lastFrameError = "";
+          return;
+        }
+
         debugRef.current.frameErrorCount += 1;
+        debugRef.current.lastFrameStatus = "デコードエラー";
         debugRef.current.lastFrameError = errorMessage;
       };
 
@@ -232,8 +333,12 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
       ) : null}
       <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
         <p>decoded: {debugStats.decodedCount}</p>
-        <p>frame errors: {debugStats.frameErrorCount}</p>
-        <p className="break-all">last frame error: {debugStats.lastFrameError || "-"}</p>
+        <p>QR未検出フレーム: {debugStats.noCodeFrameCount}</p>
+        <p>decoder errors: {debugStats.frameErrorCount}</p>
+        <p>scan status: {debugStats.lastFrameStatus}</p>
+        {debugStats.lastFrameError ? (
+          <p className="break-all">last decoder detail: {debugStats.lastFrameError}</p>
+        ) : null}
       </div>
       {localError ? <p className="text-sm text-red-600">{localError}</p> : null}
     </section>
