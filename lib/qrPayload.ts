@@ -4,6 +4,7 @@ import { sha256 } from "@/lib/checksum";
 import { compressText, decompressText } from "@/lib/compress";
 import {
   CHUNK_SIZE,
+  HARD_MAX_JPEG_SIZE,
   HARD_MAX_SIZE,
   PAYLOAD_VERSION,
   type QRPayloadType,
@@ -57,9 +58,10 @@ export async function createPayloads(
   originalSizeBytes?: number,
 ): Promise<QRPayload[]> {
   const rawSizeBytes = originalSizeBytes ?? new TextEncoder().encode(text).length;
-  if (rawSizeBytes > HARD_MAX_SIZE) {
+  const hardMaxSize = payloadType === "jpeg" ? HARD_MAX_JPEG_SIZE : HARD_MAX_SIZE;
+  if (rawSizeBytes > hardMaxSize) {
     throw new Error(
-      `Input is too large. Limit is ${HARD_MAX_SIZE} bytes for MVP.`,
+      `Input is too large. Limit is ${hardMaxSize} bytes for ${payloadType}.`,
     );
   }
 

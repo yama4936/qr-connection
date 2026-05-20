@@ -8,6 +8,7 @@ import { uint8ArrayToBase64 } from "@/lib/base64";
 import { compressText } from "@/lib/compress";
 import { createPayloads } from "@/lib/qrPayload";
 import {
+  HARD_MAX_JPEG_SIZE,
   HARD_MAX_SIZE,
   RECOMMENDED_MAX_SIZE,
   type QRPayload,
@@ -91,10 +92,15 @@ export default function SendPage() {
         sourceType === "jpeg" && loadedFileBytes > 0
           ? loadedFileBytes
           : new TextEncoder().encode(sourceData).length;
+      const hardMaxSize = sourceType === "jpeg" ? HARD_MAX_JPEG_SIZE : HARD_MAX_SIZE;
 
-      if (rawBytesLength > HARD_MAX_SIZE) {
+      if (rawBytesLength > hardMaxSize) {
         setPayloads([]);
-        setError("300KBを超えるデータはMVPでは送信できません。");
+        setError(
+          sourceType === "jpeg"
+            ? "2MBを超えるJPEGは送信できません。"
+            : "300KBを超えるデータは送信できません。",
+        );
         return;
       }
 
@@ -131,13 +137,19 @@ export default function SendPage() {
     try {
       const buffer = await file.arrayBuffer();
       const bytes = new Uint8Array(buffer);
+      const jpeg = isJpegFile(file);
+      const hardMaxSize = jpeg ? HARD_MAX_JPEG_SIZE : HARD_MAX_SIZE;
 
-      if (bytes.length > HARD_MAX_SIZE) {
-        setError("300KBを超えるファイルはMVPでは送信できません。");
+      if (bytes.length > hardMaxSize) {
+        setError(
+          jpeg
+            ? "2MBを超えるJPEGは送信できません。"
+            : "300KBを超えるファイルは送信できません。",
+        );
         return;
       }
 
-      if (isJpegFile(file)) {
+      if (jpeg) {
         const dataUrl = `data:image/jpeg;base64,${uint8ArrayToBase64(bytes)}`;
 
         setText(`[JPEG] ${file.name}`);
