@@ -52,4 +52,30 @@ npm run build
 If a check fails, fix the issue before committing.
 
 If a check cannot be run because the project does not define it, mention that in the commit/log summary.
+
+## Git push / documentation file rule
+
+Do not run `git push` unless the user explicitly instructs you to push.
+
+Creating local Git commits is allowed and required after each logical implementation step, but pushing to any remote repository is prohibited by default.
+
+Do not create, modify, stage, commit, or push documentation-only files unless they are directly required for the requested implementation or the user explicitly asks for them.
+
+Documentation-related files include, but are not limited to:
+
+- `docs/**`
+- `*.md`
+- `README.md`
+- `CHANGELOG.md`
+- `LICENSE`
+- explanation files
+- design notes
+- generated reports
+- skill/instruction documents
+
+Before every commit, inspect the staged files with:
+
+```bash
+git status --short
+git diff --cached --stat
 <!-- END:nextjs-agent-rules -->
