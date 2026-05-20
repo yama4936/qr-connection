@@ -1,0 +1,41 @@
+name: QRConnection
+options:
+  minimumXcodeGenVersion: 2.37.0
+  deploymentTarget:
+    iOS: "17.0"
+    macOS: "14.0"
+configs:
+  Debug: debug
+  Release: release
+targets:
+  QRConnection-iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: QRConnection
+        excludes:
+          - Resources/Info-macOS.plist
+          - Resources/QRConnection-macOS.entitlements
+    settings:
+      base:
+        PRODUCT_NAME: QRConnection
+        PRODUCT_BUNDLE_IDENTIFIER: com.yama.qrconnection.ios
+        INFOPLIST_FILE: QRConnection/Resources/Info-iOS.plist
+        SWIFT_VERSION: 5.0
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+  QRConnection-macOS:
+    type: application
+    platform: macOS
+    sources:
+      - path: QRConnection
+        excludes:
+          - Resources/Info-iOS.plist
+    settings:
+      base:
+        PRODUCT_NAME: QRConnection
+        PRODUCT_BUNDLE_IDENTIFIER: com.yama.qrconnection.macos
+        INFOPLIST_FILE: QRConnection/Resources/Info-macOS.plist
+        CODE_SIGN_ENTITLEMENTS: QRConnection/Resources/QRConnection-macOS.entitlements
+        SWIFT_VERSION: 5.0
+        GENERATE_INFOPLIST_FILE: NO
