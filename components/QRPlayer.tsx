@@ -9,6 +9,7 @@ type QRPlayerProps = {
   payloads: QRPayload[];
   intervalMs: number;
   isPlaying: boolean;
+  displayIndices?: number[];
   onCurrentIndexChange?: (index: number) => void;
   onError?: (message: string) => void;
 };
@@ -17,11 +18,26 @@ export function QRPlayer({
   payloads,
   intervalMs,
   isPlaying,
+  displayIndices,
   onCurrentIndexChange,
   onError,
 }: QRPlayerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentDisplayPosition, setCurrentDisplayPosition] = useState(0);
+  const playbackIndices = useMemo(() => {
+    const allIndices = payloads.map((_, index) => index);
+    if (!displayIndices || displayIndices.length === 0) {
+      return allIndices;
+    }
+
+    const uniqueIndices = Array.from(new Set(displayIndices)).filter(
+      (index) => index >= 0 && index < payloads.length,
+    );
+    return uniqueIndices.length > 0 ? uniqueIndices : allIndices;
+  }, [displayIndices, payloads]);
+  const safeDisplayPosition =
+    playbackIndices.length > 0 ? currentDisplayPosition % playbackIndices.length : 0;
+  const currentIndex = playbackIndices[safeDisplayPosition] ?? 0;
 
   const currentPayload = useMemo(
     () => payloads[currentIndex] ?? null,
@@ -54,16 +70,16 @@ export function QRPlayer({
   }, [currentPayload, onError]);
 
   useEffect(() => {
-    if (!isPlaying || payloads.length === 0) {
+    if (!isPlaying || playbackIndices.length === 0) {
       return;
     }
 
     const timer = window.setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % payloads.length);
+      setCurrentDisplayPosition((prev) => (prev + 1) % playbackIndices.length);
     }, intervalMs);
 
     return () => window.clearInterval(timer);
-  }, [intervalMs, isPlaying, payloads.length]);
+  }, [intervalMs, isPlaying, playbackIndices.length]);
 
   if (payloads.length === 0) {
     return (

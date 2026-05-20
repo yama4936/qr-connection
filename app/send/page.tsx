@@ -18,8 +18,70 @@ import {
 
 const INTERVAL_OPTIONS = [300, 500, 1000] as const;
 
+type ParsedChunkIndices =
+  | { ok: true; indices: number[] }
+  | { ok: false; message: string };
+
 function formatBytes(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)}KB`;
+}
+
+function parseChunkIndexInput(input: string, total: number): ParsedChunkIndices {
+  if (total <= 0) {
+    return { ok: false, message: "先にQRを生成してください。" };
+  }
+
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return { ok: false, message: "再表示するchunk indexを入力してください。" };
+  }
+
+  const maxIndex = total - 1;
+  const selected = new Set<number>();
+  const tokens = trimmed.split(/[,\s、]+/).filter(Boolean);
+
+  for (const token of tokens) {
+    const rangeMatch = token.match(/^(\d+)-(\d+)$/);
+    if (rangeMatch) {
+      const start = Number.parseInt(rangeMatch[1], 10);
+      const end = Number.parseInt(rangeMatch[2], 10);
+
+      if (start > end) {
+        return { ok: false, message: `${token} は小さい順に指定してください。` };
+      }
+
+      if (start < 0 || end > maxIndex) {
+        return {
+          ok: false,
+          message: `chunk indexは0から${maxIndex}の範囲で指定してください。`,
+        };
+      }
+
+      for (let index = start; index <= end; index += 1) {
+        selected.add(index);
+      }
+      continue;
+    }
+
+    if (!/^\d+$/.test(token)) {
+      return {
+        ok: false,
+        message: `chunk indexは数字、カンマ、範囲（例: 2-5）で指定してください。`,
+      };
+    }
+
+    const index = Number.parseInt(token, 10);
+    if (index > maxIndex) {
+      return {
+        ok: false,
+        message: `chunk indexは0から${maxIndex}の範囲で指定してください。`,
+      };
+    }
+
+    selected.add(index);
+  }
+
+  return { ok: true, indices: Array.from(selected).sort((a, b) => a - b) };
 }
 
 function isProbablyBinary(bytes: Uint8Array): boolean {
@@ -67,6 +129,11 @@ export default function SendPage() {
   const [loadedFileName, setLoadedFileName] = useState<string | null>(null);
   const [loadedFileBytes, setLoadedFileBytes] = useState(0);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [chunkSelectionInput, setChunkSelectionInput] = useState("");
+  const [selectedChunkIndices, setSelectedChunkIndices] = useState<number[] | null>(
+    null,
+  );
+  const [chunkSelectionError, setChunkSelectionError] = useState<string | null>(null);
 
   const resetGeneratedState = () => {
     setPayloads([]);
@@ -74,6 +141,9 @@ export default function SendPage() {
     setCurrentIndex(0);
     setOriginalBytes(0);
     setCompressedBytes(0);
+    setChunkSelectionInput("");
+    setSelectedChunkIndices(null);
+    setChunkSelectionError(null);
   };
 
   const handleGenerate = async () => {
@@ -133,6 +203,9 @@ export default function SendPage() {
       setCompressedBytes(compressed.length);
       setPayloads(generated);
       setIsPlaying(true);
+      setChunkSelectionInput("");
+      setSelectedChunkIndices(null);
+      setChunkSelectionError(null);
     } catch (createError) {
       setPayloads([]);
       const message =
@@ -272,6 +345,24 @@ export default function SendPage() {
     setLoadedFileBytes(0);
   };
 
+  const handleApplyChunkSelection = () => {
+    const parsed = parseChunkIndexInput(chunkSelectionInput, payloads.length);
+    if (!parsed.ok) {
+      setChunkSelectionError(parsed.message);
+      return;
+    }
+
+    setSelectedChunkIndices(parsed.indices);
+    setChunkSelectionError(null);
+    setIsPlaying(true);
+  };
+
+  const handleClearChunkSelection = () => {
+    setSelectedChunkIndices(null);
+    setChunkSelectionError(null);
+    setIsPlaying(payloads.length > 0);
+  };
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-6 py-10">
       <header className="flex items-center justify-between">
@@ -347,10 +438,13 @@ export default function SendPage() {
 
       <section className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <QRPlayer
-          key={payloads[0]?.sessionId ?? "empty"}
+          key={`${payloads[0]?.sessionId ?? "empty"}:${
+            selectedChunkIndices?.join(",") ?? "all"
+          }`}
           payloads={payloads}
           intervalMs={intervalMs}
           isPlaying={isPlaying}
+          displayIndices={selectedChunkIndices ?? undefined}
           onCurrentIndexChange={setCurrentIndex}
           onError={setError}
         />
@@ -391,11 +485,58 @@ export default function SendPage() {
               停止
             </button>
           </div>
+          <div className="space-y-2 border-t border-slate-200 pt-3">
+            <label
+              htmlFor="chunk-selection"
+              className="text-sm font-semibold text-slate-700"
+            >
+              指定chunk再表示
+            </label>
+            <textarea
+              id="chunk-selection"
+              value={chunkSelectionInput}
+              onChange={(event) => setChunkSelectionInput(event.target.value)}
+              disabled={payloads.length === 0}
+              rows={3}
+              className="w-full resize-y rounded-md border border-slate-300 p-2 text-sm text-slate-800 disabled:bg-slate-100 disabled:text-slate-400"
+              placeholder="例: 0, 2, 5-7"
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleApplyChunkSelection}
+                disabled={payloads.length === 0}
+                className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                指定のみ表示
+              </button>
+              <button
+                type="button"
+                onClick={handleClearChunkSelection}
+                disabled={payloads.length === 0}
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:text-slate-300"
+              >
+                全chunk表示
+              </button>
+            </div>
+            {chunkSelectionError ? (
+              <p className="text-xs text-red-600">{chunkSelectionError}</p>
+            ) : null}
+            {selectedChunkIndices ? (
+              <p className="break-words text-xs text-slate-600">
+                指定中: {selectedChunkIndices.join(", ")}
+              </p>
+            ) : null}
+          </div>
           <div className="space-y-1 text-sm text-slate-700">
             <p>種別: {sourceType}</p>
             <p>
-              現在:{" "}
-              {payloads.length > 0 ? `${currentIndex + 1} / ${payloads.length}` : "- / -"}
+              現在index:{" "}
+              {payloads.length > 0 ? `${currentIndex} / ${payloads.length - 1}` : "- / -"}
+            </p>
+            <p>
+              表示対象:{" "}
+              {selectedChunkIndices ? `${selectedChunkIndices.length} chunk` : "全chunk"}
             </p>
             <p>元データ: {formatBytes(originalBytes)}</p>
             <p>圧縮後: {formatBytes(compressedBytes)}</p>
