@@ -6,8 +6,9 @@ import { type ChangeEvent, type DragEvent, useState } from "react";
 import { QRPlayer } from "@/components/QRPlayer";
 import { uint8ArrayToBase64 } from "@/lib/base64";
 import { compressText } from "@/lib/compress";
-import { createPayloads } from "@/lib/qrPayload";
+import { createErasurePayloads, createPayloads } from "@/lib/qrPayload";
 import {
+  DEFAULT_ERASURE_PARITY_RATIO,
   HARD_MAX_JPEG_SIZE,
   HARD_MAX_PDF_SIZE,
   HARD_MAX_SIZE,
@@ -17,6 +18,9 @@ import {
 } from "@/types/qr";
 
 const INTERVAL_OPTIONS = [300, 500, 1000] as const;
+const ERASURE_REDUNDANCY_OPTIONS = [0.2, 0.3, 0.5] as const;
+
+type TransferMode = "erasure" | "legacy";
 
 type ParsedChunkIndices =
   | { ok: true; indices: number[] }
@@ -116,6 +120,10 @@ export default function SendPage() {
   const [sourceData, setSourceData] = useState("");
   const [sourceType, setSourceType] = useState<QRPayloadType>("text");
   const [payloads, setPayloads] = useState<QRPayload[]>([]);
+  const [transferMode, setTransferMode] = useState<TransferMode>("erasure");
+  const [parityRatio, setParityRatio] = useState<
+    (typeof ERASURE_REDUNDANCY_OPTIONS)[number]
+  >(DEFAULT_ERASURE_PARITY_RATIO);
   const [intervalMs, setIntervalMs] = useState<(typeof INTERVAL_OPTIONS)[number]>(
     500,
   );
@@ -191,13 +199,16 @@ export default function SendPage() {
       }
 
       const compressed = compressText(sourceData);
-      const generated = await createPayloads(
-        sourceData,
-        sourceType,
+      const payloadOriginalSize =
         (sourceType === "jpeg" || sourceType === "pdf") && loadedFileBytes > 0
           ? loadedFileBytes
-          : undefined,
-      );
+          : undefined;
+      const generated =
+        transferMode === "erasure"
+          ? await createErasurePayloads(sourceData, sourceType, payloadOriginalSize, {
+              parityRatio,
+            })
+          : await createPayloads(sourceData, sourceType, payloadOriginalSize);
 
       setOriginalBytes(rawBytesLength);
       setCompressedBytes(compressed.length);
@@ -363,6 +374,17 @@ export default function SendPage() {
     setIsPlaying(payloads.length > 0);
   };
 
+  const firstPayload = payloads[0] ?? null;
+  const requiredQrCount = firstPayload?.version === 2 ? firstPayload.required : payloads.length;
+  const activeModeLabel =
+    firstPayload?.version === 2
+      ? "Erasure v2"
+      : firstPayload?.version === 1
+        ? "Legacy v1"
+        : transferMode === "erasure"
+          ? "Erasure v2"
+          : "Legacy v1";
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-6 py-10">
       <header className="flex items-center justify-between">
@@ -451,6 +473,54 @@ export default function SendPage() {
 
         <aside className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-700">表示制御</h2>
+          <div className="space-y-2 border-b border-slate-200 pb-3">
+            <p className="text-sm font-semibold text-slate-700">転送方式</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setTransferMode("erasure")}
+                className={`rounded-md px-3 py-2 text-sm font-medium ${
+                  transferMode === "erasure"
+                    ? "bg-slate-900 text-white"
+                    : "border border-slate-300 text-slate-700"
+                }`}
+              >
+                Erasure
+              </button>
+              <button
+                type="button"
+                onClick={() => setTransferMode("legacy")}
+                className={`rounded-md px-3 py-2 text-sm font-medium ${
+                  transferMode === "legacy"
+                    ? "bg-slate-900 text-white"
+                    : "border border-slate-300 text-slate-700"
+                }`}
+              >
+                Legacy QR
+              </button>
+            </div>
+            {transferMode === "erasure" ? (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-slate-700">冗長率</p>
+                <div className="flex flex-wrap gap-2">
+                  {ERASURE_REDUNDANCY_OPTIONS.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setParityRatio(option)}
+                      className={`rounded-md px-3 py-2 text-sm font-medium ${
+                        parityRatio === option
+                          ? "bg-slate-900 text-white"
+                          : "border border-slate-300 text-slate-700"
+                      }`}
+                    >
+                      {Math.round(option * 100)}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
           <div className="flex flex-wrap gap-2">
             {INTERVAL_OPTIONS.map((option) => (
               <button
@@ -529,6 +599,7 @@ export default function SendPage() {
             ) : null}
           </div>
           <div className="space-y-1 text-sm text-slate-700">
+            <p>方式: {activeModeLabel}</p>
             <p>種別: {sourceType}</p>
             <p>
               現在index:{" "}
@@ -540,7 +611,8 @@ export default function SendPage() {
             </p>
             <p>元データ: {formatBytes(originalBytes)}</p>
             <p>圧縮後: {formatBytes(compressedBytes)}</p>
-            <p>QR数: {payloads.length}</p>
+            <p>必要QR数: {requiredQrCount}</p>
+            <p>QR総数: {payloads.length}</p>
           </div>
         </aside>
       </section>
