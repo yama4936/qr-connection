@@ -29,6 +29,14 @@ type ReceiveDebugStats = {
   ignoredVersionMismatch: number;
   duplicateChunk: number;
   acceptedChunk: number;
+  replacedChunk: number;
+};
+
+type LastReject = {
+  issue: string;
+  preview: string;
+  keys: string[];
+  version: string;
 };
 
 const INITIAL_DEBUG_STATS: ReceiveDebugStats = {
@@ -44,6 +52,7 @@ const INITIAL_DEBUG_STATS: ReceiveDebugStats = {
   ignoredVersionMismatch: 0,
   duplicateChunk: 0,
   acceptedChunk: 0,
+  replacedChunk: 0,
 };
 
 export default function ReceivePage() {
@@ -62,6 +71,7 @@ export default function ReceivePage() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [debugStats, setDebugStats] = useState<ReceiveDebugStats>(INITIAL_DEBUG_STATS);
+  const [lastReject, setLastReject] = useState<LastReject | null>(null);
   const payloadVersionRef = useRef<1 | 2 | null>(null);
   const sessionRef = useRef<string | null>(null);
   const totalRef = useRef(0);
@@ -102,6 +112,45 @@ export default function ReceivePage() {
     (qrText: string) => {
       const parsed = parsePayloadDetailed(qrText);
       if (!parsed.ok) {
+        const preview =
+          qrText.length > 140 ? `${qrText.slice(0, 140)}...` : qrText;
+
+        if (parsed.issue === "shape_mismatch") {
+          try {
+            const parsedRaw: unknown = JSON.parse(qrText);
+            if (typeof parsedRaw === "object" && parsedRaw !== null) {
+              const record = parsedRaw as Record<string, unknown>;
+              setLastReject({
+                issue: parsed.issue,
+                preview,
+                keys: Object.keys(record).slice(0, 20),
+                version: String(record.version ?? "-"),
+              });
+            } else {
+              setLastReject({
+                issue: parsed.issue,
+                preview,
+                keys: [],
+                version: "-",
+              });
+            }
+          } catch {
+            setLastReject({
+              issue: parsed.issue,
+              preview,
+              keys: [],
+              version: "-",
+            });
+          }
+        } else {
+          setLastReject({
+            issue: parsed.issue,
+            preview,
+            keys: [],
+            version: "-",
+          });
+        }
+
         if (parsed.issue === "json_parse_error") {
           setDebugStats((prev) => ({ ...prev, jsonParseError: prev.jsonParseError + 1 }));
         } else if (parsed.issue === "shape_mismatch") {
@@ -191,7 +240,9 @@ export default function ReceivePage() {
 
       if (payload.version === 2) {
         const key = erasureShardKey(payload);
-        if (erasureShardsRef.current.has(key)) {
+        const existing = erasureShardsRef.current.get(key);
+
+        if (existing && existing.data === payload.data) {
           setDebugStats((prev) => ({ ...prev, duplicateChunk: prev.duplicateChunk + 1 }));
           return;
         }
@@ -200,11 +251,17 @@ export default function ReceivePage() {
         next.set(key, payload);
         erasureShardsRef.current = next;
         setErasureShards(next);
-        setDebugStats((prev) => ({ ...prev, acceptedChunk: prev.acceptedChunk + 1 }));
+        setDebugStats((prev) =>
+          existing
+            ? { ...prev, replacedChunk: prev.replacedChunk + 1 }
+            : { ...prev, acceptedChunk: prev.acceptedChunk + 1 },
+        );
         return;
       }
 
-      if (chunksRef.current.has(payload.index)) {
+      const existingChunk = chunksRef.current.get(payload.index);
+
+      if (existingChunk === payload.data) {
         setDebugStats((prev) => ({ ...prev, duplicateChunk: prev.duplicateChunk + 1 }));
         return;
       }
@@ -213,7 +270,11 @@ export default function ReceivePage() {
       next.set(payload.index, payload.data);
       chunksRef.current = next;
       setChunks(next);
-      setDebugStats((prev) => ({ ...prev, acceptedChunk: prev.acceptedChunk + 1 }));
+      setDebugStats((prev) =>
+        typeof existingChunk === "string"
+          ? { ...prev, replacedChunk: prev.replacedChunk + 1 }
+          : { ...prev, acceptedChunk: prev.acceptedChunk + 1 },
+      );
     },
     [],
   );
@@ -304,6 +365,7 @@ export default function ReceivePage() {
     setResult("");
     setCopied(false);
     setError(null);
+    setLastReject(null);
     setDebugStats(INITIAL_DEBUG_STATS);
   };
 
@@ -362,7 +424,15 @@ export default function ReceivePage() {
             <p>checksum mismatch: {debugStats.ignoredChecksumMismatch}</p>
             <p>type mismatch: {debugStats.ignoredTypeMismatch}</p>
             <p>version mismatch: {debugStats.ignoredVersionMismatch}</p>
-            <p>accepted/duplicate: {debugStats.acceptedChunk} / {debugStats.duplicateChunk}</p>
+            <p>accepted/duplicate/replaced: {debugStats.acceptedChunk} / {debugStats.duplicateChunk} / {debugStats.replacedChunk}</p>
+            {lastReject ? (
+              <>
+                <p>last reject issue: {lastReject.issue}</p>
+                <p>last reject version: {lastReject.version}</p>
+                <p>last reject keys: {lastReject.keys.length ? lastReject.keys.join(", ") : "-"}</p>
+                <p className="break-all">last reject preview: {lastReject.preview}</p>
+              </>
+            ) : null}
           </section>
           <button
             type="button"

@@ -17,7 +17,7 @@ import {
   type QRPayloadType,
 } from "@/types/qr";
 
-const INTERVAL_OPTIONS = [300, 500, 1000] as const;
+const INTERVAL_OPTIONS = [50, 100, 300, 500, 1000] as const;
 const ERASURE_REDUNDANCY_OPTIONS = [0.2, 0.3, 0.5] as const;
 
 type TransferMode = "erasure" | "legacy";
