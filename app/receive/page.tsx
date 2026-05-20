@@ -58,6 +58,19 @@ export default function ReceivePage() {
     () => Array.from(chunks.keys()).sort((a, b) => a - b),
     [chunks],
   );
+  const missingIndices = useMemo(() => {
+    if (total <= 0) {
+      return [];
+    }
+
+    const indices: number[] = [];
+    for (let index = 0; index < total; index += 1) {
+      if (!chunks.has(index)) {
+        indices.push(index);
+      }
+    }
+    return indices;
+  }, [chunks, total]);
 
   const handleScan = useCallback(
     (qrText: string) => {
@@ -234,6 +247,18 @@ export default function ReceivePage() {
             <h2 className="text-sm font-semibold text-slate-700">読み取り済みindex</h2>
             <p className="mt-2 break-words text-sm text-slate-700">
               {receivedIndices.length > 0 ? receivedIndices.join(", ") : "-"}
+            </p>
+          </section>
+          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-700">
+              未取得chunk index
+            </h2>
+            <p className="mt-2 break-words text-sm text-slate-700">
+              {total <= 0
+                ? "-"
+                : missingIndices.length > 0
+                  ? missingIndices.join(", ")
+                  : "なし"}
             </p>
           </section>
           <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600 shadow-sm">
