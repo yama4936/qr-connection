@@ -5,6 +5,7 @@ import { compressText, decompressText } from "@/lib/compress";
 import {
   CHUNK_SIZE,
   HARD_MAX_JPEG_SIZE,
+  HARD_MAX_PDF_SIZE,
   HARD_MAX_SIZE,
   PAYLOAD_VERSION,
   type QRPayloadType,
@@ -46,7 +47,9 @@ function isQRPayload(value: unknown): value is QRPayload {
     typeof payload.compression === "string" &&
     payload.compression === "deflate" &&
     typeof payload.payloadType === "string" &&
-    (payload.payloadType === "text" || payload.payloadType === "jpeg") &&
+    (payload.payloadType === "text" ||
+      payload.payloadType === "jpeg" ||
+      payload.payloadType === "pdf") &&
     typeof payload.data === "string" &&
     typeof payload.checksum === "string"
   );
@@ -58,7 +61,12 @@ export async function createPayloads(
   originalSizeBytes?: number,
 ): Promise<QRPayload[]> {
   const rawSizeBytes = originalSizeBytes ?? new TextEncoder().encode(text).length;
-  const hardMaxSize = payloadType === "jpeg" ? HARD_MAX_JPEG_SIZE : HARD_MAX_SIZE;
+  const hardMaxSize =
+    payloadType === "jpeg"
+      ? HARD_MAX_JPEG_SIZE
+      : payloadType === "pdf"
+        ? HARD_MAX_PDF_SIZE
+        : HARD_MAX_SIZE;
   if (rawSizeBytes > hardMaxSize) {
     throw new Error(
       `Input is too large. Limit is ${hardMaxSize} bytes for ${payloadType}.`,

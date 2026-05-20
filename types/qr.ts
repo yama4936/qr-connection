@@ -1,4 +1,4 @@
-export type QRPayloadType = "text" | "jpeg";
+export type QRPayloadType = "text" | "jpeg" | "pdf";
 
 export type QRPayload = {
   version: 1;
@@ -17,4 +17,5 @@ export const PAYLOAD_VERSION = 1 as const;
 export const CHUNK_SIZE = 450;
 export const RECOMMENDED_MAX_SIZE = 100 * 1024;
 export const HARD_MAX_JPEG_SIZE = 2 * 1024 * 1024;
+export const HARD_MAX_PDF_SIZE = 2 * 1024 * 1024;
 export const HARD_MAX_SIZE = 300 * 1024;

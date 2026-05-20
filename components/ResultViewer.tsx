@@ -18,6 +18,7 @@ export function ResultViewer({
   onCopy,
 }: ResultViewerProps) {
   const isJpegData = payloadType === "jpeg" && result.startsWith("data:image/jpeg;base64,");
+  const isPdfData = payloadType === "pdf" && result.startsWith("data:application/pdf;base64,");
 
   return (
     <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -36,6 +37,24 @@ export function ResultViewer({
             className="inline-flex rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
           >
             JPEGを保存
+          </a>
+        </div>
+      ) : isPdfData ? (
+        <div className="space-y-3">
+          <a
+            href={result}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
+          >
+            PDFを開く
+          </a>
+          <a
+            href={result}
+            download="received.pdf"
+            className="inline-flex rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
+          >
+            PDFを保存
           </a>
         </div>
       ) : (

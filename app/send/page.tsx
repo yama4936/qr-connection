@@ -9,6 +9,7 @@ import { compressText } from "@/lib/compress";
 import { createPayloads } from "@/lib/qrPayload";
 import {
   HARD_MAX_JPEG_SIZE,
+  HARD_MAX_PDF_SIZE,
   HARD_MAX_SIZE,
   RECOMMENDED_MAX_SIZE,
   type QRPayload,
@@ -42,6 +43,10 @@ function isProbablyBinary(bytes: Uint8Array): boolean {
 
 function isJpegFile(file: File): boolean {
   return file.type === "image/jpeg" || /\.jpe?g$/i.test(file.name);
+}
+
+function isPdfFile(file: File): boolean {
+  return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
 }
 
 export default function SendPage() {
@@ -89,17 +94,24 @@ export default function SendPage() {
 
     try {
       const rawBytesLength =
-        sourceType === "jpeg" && loadedFileBytes > 0
+        (sourceType === "jpeg" || sourceType === "pdf") && loadedFileBytes > 0
           ? loadedFileBytes
           : new TextEncoder().encode(sourceData).length;
-      const hardMaxSize = sourceType === "jpeg" ? HARD_MAX_JPEG_SIZE : HARD_MAX_SIZE;
+      const hardMaxSize =
+        sourceType === "jpeg"
+          ? HARD_MAX_JPEG_SIZE
+          : sourceType === "pdf"
+            ? HARD_MAX_PDF_SIZE
+            : HARD_MAX_SIZE;
 
       if (rawBytesLength > hardMaxSize) {
         setPayloads([]);
         setError(
           sourceType === "jpeg"
             ? "2MBを超えるJPEGは送信できません。"
-            : "300KBを超えるデータは送信できません。",
+            : sourceType === "pdf"
+              ? "2MBを超えるPDFは送信できません。"
+              : "300KBを超えるデータは送信できません。",
         );
         return;
       }
@@ -112,7 +124,9 @@ export default function SendPage() {
       const generated = await createPayloads(
         sourceData,
         sourceType,
-        sourceType === "jpeg" && loadedFileBytes > 0 ? loadedFileBytes : undefined,
+        (sourceType === "jpeg" || sourceType === "pdf") && loadedFileBytes > 0
+          ? loadedFileBytes
+          : undefined,
       );
 
       setOriginalBytes(rawBytesLength);
@@ -138,13 +152,16 @@ export default function SendPage() {
       const buffer = await file.arrayBuffer();
       const bytes = new Uint8Array(buffer);
       const jpeg = isJpegFile(file);
-      const hardMaxSize = jpeg ? HARD_MAX_JPEG_SIZE : HARD_MAX_SIZE;
+      const pdf = isPdfFile(file);
+      const hardMaxSize = jpeg ? HARD_MAX_JPEG_SIZE : pdf ? HARD_MAX_PDF_SIZE : HARD_MAX_SIZE;
 
       if (bytes.length > hardMaxSize) {
         setError(
           jpeg
             ? "2MBを超えるJPEGは送信できません。"
-            : "300KBを超えるファイルは送信できません。",
+            : pdf
+              ? "2MBを超えるPDFは送信できません。"
+              : "300KBを超えるファイルは送信できません。",
         );
         return;
       }
@@ -167,8 +184,26 @@ export default function SendPage() {
         return;
       }
 
+      if (pdf) {
+        const dataUrl = `data:application/pdf;base64,${uint8ArrayToBase64(bytes)}`;
+
+        setText(`[PDF] ${file.name}`);
+        setSourceData(dataUrl);
+        setSourceType("pdf");
+        setLoadedFileName(file.name);
+        setLoadedFileBytes(bytes.length);
+        resetGeneratedState();
+
+        if (bytes.length > RECOMMENDED_MAX_SIZE) {
+          setWarning(
+            "100KBを超えるPDFです。読み取り失敗率が上がる可能性があります。",
+          );
+        }
+        return;
+      }
+
       if (isProbablyBinary(bytes)) {
-        setError("このファイル形式は未対応です。UTF-8テキストまたはJPEGを選択してください。");
+        setError("このファイル形式は未対応です。UTF-8テキスト、JPEG、PDFを選択してください。");
         return;
       }
 
@@ -187,7 +222,9 @@ export default function SendPage() {
         );
       }
     } catch {
-      setError("ファイルの読み込みに失敗しました。UTF-8テキストまたはJPEGを選択してください。");
+      setError(
+        "ファイルの読み込みに失敗しました。UTF-8テキスト、JPEG、PDFを選択してください。",
+      );
     } finally {
       setIsReadingFile(false);
     }
@@ -275,7 +312,7 @@ export default function SendPage() {
               : "border-slate-300 bg-slate-50 text-slate-600"
           }`}
         >
-          <p>ここにファイルをドロップ（UTF-8テキスト / JPEG）</p>
+          <p>ここにファイルをドロップ（UTF-8テキスト / JPEG / PDF）</p>
           <div className="mt-3 flex items-center gap-3">
             <label className="inline-flex cursor-pointer rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700">
               ファイル選択
@@ -284,11 +321,11 @@ export default function SendPage() {
                 className="hidden"
                 onChange={handleFileInputChange}
                 disabled={isReadingFile}
-                accept=".txt,.md,.json,.csv,.tsv,.log,.yml,.yaml,.xml,.html,.css,.js,.ts,.tsx,.jpg,.jpeg,image/jpeg,text/*,application/json"
+                accept=".txt,.md,.json,.csv,.tsv,.log,.yml,.yaml,.xml,.html,.css,.js,.ts,.tsx,.jpg,.jpeg,.pdf,image/jpeg,application/pdf,text/*,application/json"
               />
             </label>
             <span className="text-xs text-slate-500">
-              {isReadingFile ? "読み込み中..." : "txt / md / json / jpeg"}
+              {isReadingFile ? "読み込み中..." : "txt / md / json / jpeg / pdf"}
             </span>
           </div>
           {loadedFileName ? (
@@ -355,7 +392,7 @@ export default function SendPage() {
             </button>
           </div>
           <div className="space-y-1 text-sm text-slate-700">
-            <p>種別: {sourceType === "jpeg" ? "jpeg" : "text"}</p>
+            <p>種別: {sourceType}</p>
             <p>
               現在:{" "}
               {payloads.length > 0 ? `${currentIndex + 1} / ${payloads.length}` : "- / -"}
