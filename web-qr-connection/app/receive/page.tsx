@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { QRScanner } from "@/components/QRScanner";
 import { ResultViewer } from "@/components/ResultViewer";
@@ -82,31 +82,10 @@ export default function ReceivePage() {
   const chunksRef = useRef<Map<number, string>>(new Map());
   const erasureShardsRef = useRef<Map<string, QRPayloadV2>>(new Map());
 
-  const receivedIndices = useMemo(
-    () =>
-      payloadVersion === 2
-        ? Array.from(erasureShards.values())
-            .map((payload) => payload.index)
-            .sort((a, b) => a - b)
-        : Array.from(chunks.keys()).sort((a, b) => a - b),
-    [chunks, erasureShards, payloadVersion],
-  );
-  const missingIndices = useMemo(() => {
-    if (total <= 0) {
-      return [];
-    }
-
-    const receivedSet = new Set(receivedIndices);
-    const indices: number[] = [];
-    for (let index = 0; index < total; index += 1) {
-      if (!receivedSet.has(index)) {
-        indices.push(index);
-      }
-    }
-    return indices;
-  }, [receivedIndices, total]);
   const receivedCount = payloadVersion === 2 ? erasureShards.size : chunks.size;
   const progressTotal = requiredTotal || total || 0;
+  const remainingRequired =
+    progressTotal > 0 ? Math.max(progressTotal - receivedCount, 0) : 0;
 
   const handleScan = useCallback(
     (qrText: string) => {
@@ -387,6 +366,9 @@ export default function ReceivePage() {
             current={receivedCount}
             total={progressTotal}
           />
+          <p className="text-xs text-slate-500">
+            未取得（必要分）: {progressTotal > 0 ? `${remainingRequired}件` : "-"}
+          </p>
           {currentSessionId ? (
             <p className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 shadow-sm">
               sessionId: {currentSessionId} / type: {payloadType ?? "-"} / mode:{" "}
@@ -397,27 +379,9 @@ export default function ReceivePage() {
 
           <details className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
             <summary className="cursor-pointer text-sm font-semibold text-slate-700">
-              詳細（index / デバッグ）
+              デバッグ詳細
             </summary>
             <div className="mt-3 space-y-3">
-              <section>
-                <h2 className="text-sm font-semibold text-slate-700">読み取り済みindex</h2>
-                <p className="mt-1 break-words text-sm text-slate-700">
-                  {receivedIndices.length > 0 ? receivedIndices.join(", ") : "-"}
-                </p>
-              </section>
-              <section>
-                <h2 className="text-sm font-semibold text-slate-700">
-                  未取得QR index
-                </h2>
-                <p className="mt-1 break-words text-sm text-slate-700">
-                  {total <= 0
-                    ? "-"
-                    : missingIndices.length > 0
-                      ? missingIndices.join(", ")
-                      : "なし"}
-                </p>
-              </section>
               <section className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
                 <h2 className="text-sm font-semibold text-slate-700">デバッグ</h2>
                 <p>parsed ok: {debugStats.parsedOk}</p>
