@@ -3,6 +3,7 @@ import SwiftUI
 struct QRScannerPanel: View {
     let onScan: (String) -> Void
     let onError: (String) -> Void
+    var showDebug = true
 
     @StateObject private var scannerManager = QRScannerManager()
 
@@ -33,18 +34,23 @@ struct QRScannerPanel: View {
                 .disabled(!scannerManager.isScanning)
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("decoded: \(scannerManager.debugStats.decodedCount)")
-                Text("frame errors: \(scannerManager.debugStats.frameErrorCount)")
-                Text("last frame error: \(scannerManager.debugStats.lastFrameError.isEmpty ? "-" : scannerManager.debugStats.lastFrameError)")
-                    .lineLimit(2)
-                    .truncationMode(.middle)
+            if showDebug {
+                DisclosureGroup("診断情報") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("decoded: \(scannerManager.debugStats.decodedCount)")
+                        Text("frame errors: \(scannerManager.debugStats.frameErrorCount)")
+                        Text("last frame error: \(scannerManager.debugStats.lastFrameError.isEmpty ? "-" : scannerManager.debugStats.lastFrameError)")
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.gray.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.gray.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
 
             if let localError = scannerManager.localError {
                 Text(localError)

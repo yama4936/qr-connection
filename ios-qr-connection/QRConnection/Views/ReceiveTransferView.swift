@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ReceiveTransferView: View {
     @StateObject private var viewModel = ReceiveViewModel()
+    @State private var showDebug = false
 
     var body: some View {
         ScrollView {
@@ -15,16 +16,19 @@ struct ReceiveTransferView: View {
                     },
                     onError: { message in
                         viewModel.errorMessage = message
-                    }
+                    },
+                    showDebug: showDebug
                 )
 
                 VStack(alignment: .leading, spacing: 12) {
                     TransferProgressView(
                         label: "読み取り状況",
                         current: viewModel.receivedCount,
-                        total: viewModel.progressTotal,
-                        indices: viewModel.receivedIndices
+                        total: viewModel.progressTotal
                     )
+                    Text("未取得（必要分）: \(viewModel.progressTotal > 0 ? "\(max(viewModel.progressTotal - viewModel.receivedCount, 0))件" : "-")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                     if let currentSessionId = viewModel.currentSessionId {
                         Text(
@@ -38,34 +42,28 @@ struct ReceiveTransferView: View {
                             .background(AppColors.panelBackground, in: RoundedRectangle(cornerRadius: 10))
                     }
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("読み取り済みindex")
-                            .font(.headline)
-                        Text(viewModel.receivedIndices.isEmpty ? "-" : viewModel.receivedIndices.map(String.init).joined(separator: ", "))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                    if showDebug {
+                        debugPanel
                     }
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(AppColors.panelBackground, in: RoundedRectangle(cornerRadius: 12))
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("未取得chunk index")
-                            .font(.headline)
-                        Text(viewModel.total <= 0 ? "-" : (viewModel.missingIndices.isEmpty ? "なし" : viewModel.missingIndices.map(String.init).joined(separator: ", ")))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        if showDebug {
+                            Button("デバッグ: ON") {
+                                showDebug.toggle()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        } else {
+                            Button("デバッグ: OFF") {
+                                showDebug.toggle()
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
+                        Button("リセット") {
+                            viewModel.reset()
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(AppColors.panelBackground, in: RoundedRectangle(cornerRadius: 12))
-
-                    debugPanel
-
-                    Button("リセット") {
-                        viewModel.reset()
-                    }
-                    .buttonStyle(.bordered)
                 }
 
                 ResultPanel(
