@@ -30,6 +30,10 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)}KB`;
 }
 
+function formatBytesWithRaw(bytes: number): string {
+  return `${formatBytes(bytes)} (${bytes.toLocaleString()}B)`;
+}
+
 function parseChunkIndexInput(input: string, total: number): ParsedChunkIndices {
   if (total <= 0) {
     return { ok: false, message: "先にQRを生成してください。" };
@@ -348,14 +352,6 @@ export default function SendPage() {
     void readFileIntoSource(file);
   };
 
-  const handleTextChange = (value: string) => {
-    setText(value);
-    setSourceData(value);
-    setSourceType("text");
-    setLoadedFileName(null);
-    setLoadedFileBytes(0);
-  };
-
   const handleApplyChunkSelection = () => {
     const parsed = parseChunkIndexInput(chunkSelectionInput, payloads.length);
     if (!parsed.ok) {
@@ -384,27 +380,29 @@ export default function SendPage() {
         : transferMode === "erasure"
           ? "Erasure v2"
           : "Legacy v1";
+  const hasSourceInput =
+    sourceType === "text" ? sourceData.trim().length > 0 : sourceData.length > 0;
+  const currentInputBytes =
+    sourceType === "text" ? new TextEncoder().encode(sourceData).length : loadedFileBytes;
+  const inputHardMaxBytes =
+    sourceType === "jpeg"
+      ? HARD_MAX_JPEG_SIZE
+      : sourceType === "pdf"
+        ? HARD_MAX_PDF_SIZE
+        : HARD_MAX_SIZE;
+  const inputUsagePercent = (currentInputBytes / inputHardMaxBytes) * 100;
+  const remainingBytes = Math.max(inputHardMaxBytes - currentInputBytes, 0);
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-6 py-10">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">PC → スマホ QR転送</h1>
+        <h1 className="text-2xl font-bold text-slate-900">QR転送 送信側</h1>
         <Link href="/" className="text-sm font-medium text-slate-600 underline">
           トップへ戻る
         </Link>
       </header>
 
       <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <label htmlFor="source-text" className="text-sm font-semibold text-slate-700">
-          テキスト入力
-        </label>
-        <textarea
-          id="source-text"
-          value={text}
-          onChange={(event) => handleTextChange(event.target.value)}
-          className="h-48 w-full resize-y rounded-md border border-slate-300 p-3 text-sm text-slate-800"
-          placeholder="転送したいテキストやURLを入力"
-        />
         {sourceType === "jpeg" && sourceData.startsWith("data:image/jpeg;base64,") ? (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -442,18 +440,26 @@ export default function SendPage() {
             </span>
           </div>
           {loadedFileName ? (
-            <p className="mt-2 text-xs text-slate-600">
-              読み込み済み: {loadedFileName} ({formatBytes(loadedFileBytes)})
-            </p>
+            <div className="mt-2 space-y-1 text-xs text-slate-600">
+              <p>
+                読み込み済み: {loadedFileName} ({formatBytes(loadedFileBytes)})
+              </p>
+              <p>
+                ファイル容量: {formatBytesWithRaw(loadedFileBytes)} / 上限{" "}
+                {formatBytesWithRaw(inputHardMaxBytes)}
+              </p>
+            </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          onClick={() => void handleGenerate()}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white"
-        >
-          QR生成
-        </button>
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={() => void handleGenerate()}
+            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white"
+          >
+            QR生成
+          </button>
+        </div>
         {warning ? <p className="text-sm text-amber-700">{warning}</p> : null}
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
       </section>
@@ -608,6 +614,9 @@ export default function SendPage() {
             <p>
               表示対象:{" "}
               {selectedChunkIndices ? `${selectedChunkIndices.length} chunk` : "全chunk"}
+            </p>
+            <p>
+              入力容量: {formatBytes(currentInputBytes)} / 上限 {formatBytes(inputHardMaxBytes)}
             </p>
             <p>元データ: {formatBytes(originalBytes)}</p>
             <p>圧縮後: {formatBytes(compressedBytes)}</p>
