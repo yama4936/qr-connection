@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { QRScanner } from "@/components/QRScanner";
 import { ResultViewer } from "@/components/ResultViewer";
@@ -128,6 +128,7 @@ export default function ReceivePage() {
   const [result, setResult] = useState("");
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showDebug, setShowDebug] = useState(false);
   const [debugStats, setDebugStats] = useState<ReceiveDebugStats>(INITIAL_DEBUG_STATS);
   const [lastReject, setLastReject] = useState<LastReject | null>(null);
   const [runtimeMetrics, setRuntimeMetrics] = useState<ReceiveRuntimeMetrics>(() =>
@@ -147,31 +148,10 @@ export default function ReceivePage() {
     createInitialRuntimeTracker(),
   );
 
-  const receivedIndices = useMemo(
-    () =>
-      payloadVersion === 2
-        ? Array.from(erasureShards.values())
-            .map((payload) => payload.index)
-            .sort((a, b) => a - b)
-        : Array.from(chunks.keys()).sort((a, b) => a - b),
-    [chunks, erasureShards, payloadVersion],
-  );
-  const missingIndices = useMemo(() => {
-    if (total <= 0) {
-      return [];
-    }
-
-    const receivedSet = new Set(receivedIndices);
-    const indices: number[] = [];
-    for (let index = 0; index < total; index += 1) {
-      if (!receivedSet.has(index)) {
-        indices.push(index);
-      }
-    }
-    return indices;
-  }, [receivedIndices, total]);
   const receivedCount = payloadVersion === 2 ? erasureShards.size : chunks.size;
   const progressTotal = requiredTotal || total || 0;
+  const remainingRequired =
+    progressTotal > 0 ? Math.max(progressTotal - receivedCount, 0) : 0;
 
   const resetRuntimeMetrics = useCallback(() => {
     runtimeMetricsRef.current = createInitialRuntimeTracker();
@@ -578,109 +558,107 @@ export default function ReceivePage() {
   };
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-6 py-10">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">QR転送 受信側</h1>
+    <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-3 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:gap-4 sm:px-4 sm:py-4 lg:min-h-screen lg:gap-6 lg:px-6 lg:py-10">
+      <header className="flex items-center justify-between gap-3">
+        <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">QR転送 受信側</h1>
         <Link href="/" className="text-sm font-medium text-slate-600 underline">
           トップへ戻る
         </Link>
       </header>
 
-      <section className="grid gap-4 lg:grid-cols-2">
+      <section className="grid gap-3 lg:grid-cols-2">
         <QRScanner
           onScan={handleScan}
           onError={setError}
-          onScannerStart={handleScannerStart}
+          compact
+          showDebug={showDebug}
         />
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           <TransferProgress
             label="読み取り状況"
             current={receivedCount}
             total={progressTotal}
-            indices={receivedIndices}
           />
+          <p className="text-xs text-slate-500">
+            未取得（必要分）: {progressTotal > 0 ? `${remainingRequired}件` : "-"}
+          </p>
           {currentSessionId ? (
-            <p className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm">
+            <p className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 shadow-sm">
               sessionId: {currentSessionId} / type: {payloadType ?? "-"} / mode:{" "}
               {payloadVersion === 2 ? "erasure" : "legacy"} / total: {total}
               {payloadVersion === 2 ? ` / groups: ${groupCount}` : ""}
             </p>
           ) : null}
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-700">読み取り済みindex</h2>
-            <p className="mt-2 break-words text-sm text-slate-700">
-              {receivedIndices.length > 0 ? receivedIndices.join(", ") : "-"}
-            </p>
-          </section>
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-700">
-              未取得QR index
-            </h2>
-            <p className="mt-2 break-words text-sm text-slate-700">
-              {total <= 0
-                ? "-"
-                : missingIndices.length > 0
-                  ? missingIndices.join(", ")
-                  : "なし"}
-            </p>
-          </section>
-          <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-700">デバッグ</h2>
-            <div className="mb-3 grid gap-x-4 gap-y-1 rounded-md border border-slate-200 bg-white p-3 sm:grid-cols-2">
-              <p>elapsed: {formatMetricMs(runtimeMetrics.elapsedMs)}</p>
-              <p>accepted/sec: {formatMetricNumber(runtimeMetrics.acceptedChunkPerSec)}</p>
-              <p>time to first chunk: {formatMetricMs(runtimeMetrics.timeToFirstChunkMs)}</p>
-              <p>time to complete: {formatMetricMs(runtimeMetrics.timeToCompleteMs)}</p>
-              <p>restore duration: {formatMetricMs(runtimeMetrics.restoreDurationMs)}</p>
-              <p>runtime accepted: {runtimeMetrics.acceptedChunkCount}</p>
-              <p>runtime duplicate: {runtimeMetrics.duplicateChunkCount}</p>
-              <p>runtime replaced: {runtimeMetrics.replacedChunkCount}</p>
-              <p>last accepted index: {runtimeMetrics.lastAcceptedIndex ?? "-"}</p>
-            </div>
-            <p>parsed ok: {debugStats.parsedOk}</p>
-            <p>json parse error: {debugStats.jsonParseError}</p>
-            <p>shape mismatch: {debugStats.shapeMismatch}</p>
-            <p>invalid total/index: {debugStats.invalidTotal} / {debugStats.invalidIndex}</p>
-            <p>session mismatch: {debugStats.ignoredSessionMismatch}</p>
-            <p>total mismatch: {debugStats.ignoredTotalMismatch}</p>
-            <p>checksum mismatch: {debugStats.ignoredChecksumMismatch}</p>
-            <p>type mismatch: {debugStats.ignoredTypeMismatch}</p>
-            <p>version mismatch: {debugStats.ignoredVersionMismatch}</p>
-            <p>accepted/duplicate/replaced: {debugStats.acceptedChunk} / {debugStats.duplicateChunk} / {debugStats.replacedChunk}</p>
-            {lastReject ? (
-              <>
-                <p>last reject issue: {lastReject.issue}</p>
-                <p>last reject version: {lastReject.version}</p>
-                <p>last reject keys: {lastReject.keys.length ? lastReject.keys.join(", ") : "-"}</p>
-                <p className="break-all">last reject preview: {lastReject.preview}</p>
-              </>
-            ) : null}
+
+          {showDebug ? (
+            <details className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+                デバッグ詳細
+              </summary>
+              <div className="mt-3 space-y-3">
+                <section className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                  <h2 className="text-sm font-semibold text-slate-700">デバッグ</h2>
+                  <p>parsed ok: {debugStats.parsedOk}</p>
+                  <p>json parse error: {debugStats.jsonParseError}</p>
+                  <p>shape mismatch: {debugStats.shapeMismatch}</p>
+                  <p>invalid total/index: {debugStats.invalidTotal} / {debugStats.invalidIndex}</p>
+                  <p>session mismatch: {debugStats.ignoredSessionMismatch}</p>
+                  <p>total mismatch: {debugStats.ignoredTotalMismatch}</p>
+                  <p>checksum mismatch: {debugStats.ignoredChecksumMismatch}</p>
+                  <p>type mismatch: {debugStats.ignoredTypeMismatch}</p>
+                  <p>version mismatch: {debugStats.ignoredVersionMismatch}</p>
+                  <p>accepted/duplicate/replaced: {debugStats.acceptedChunk} / {debugStats.duplicateChunk} / {debugStats.replacedChunk}</p>
+                  {lastReject ? (
+                    <>
+                      <p>last reject issue: {lastReject.issue}</p>
+                      <p>last reject version: {lastReject.version}</p>
+                      <p>last reject keys: {lastReject.keys.length ? lastReject.keys.join(", ") : "-"}</p>
+                      <p className="break-all">last reject preview: {lastReject.preview}</p>
+                    </>
+                  ) : null}
+                </section>
+              </div>
+            </details>
+          ) : null}
+
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => void handleCopyMetrics()}
-              className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700"
+              onClick={() => setShowDebug((prev) => !prev)}
+              aria-pressed={showDebug}
+              className={`rounded-md border px-4 py-2 text-sm font-medium ${
+                showDebug
+                  ? "border-slate-700 bg-slate-700 text-white"
+                  : "border-slate-300 text-slate-700"
+              }`}
             >
-              {metricsCopied ? "コピー済み" : "計測サマリーをコピー"}
+              デバッグ: {showDebug ? "ON" : "OFF"}
             </button>
-          </section>
-          <button
-            type="button"
-            onClick={handleReset}
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
-          >
-            リセット
-          </button>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
+            >
+              リセット
+            </button>
+          </div>
         </div>
       </section>
 
-      <ResultViewer
-        result={result}
-        payloadType={payloadType}
-        copied={copied}
-        error={error}
-        onCopy={handleCopy}
-      />
+      {result || error ? (
+        <ResultViewer
+          result={result}
+          payloadType={payloadType}
+          copied={copied}
+          error={error}
+          onCopy={handleCopy}
+        />
+      ) : (
+        <section className="hidden rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-sm lg:block">
+          QRを必要数読み取ると、ここに復元結果が表示されます。
+        </section>
+      )}
     </main>
   );
 }
