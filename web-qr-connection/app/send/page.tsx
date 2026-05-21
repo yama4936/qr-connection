@@ -30,6 +30,10 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)}KB`;
 }
 
+function formatBytesWithRaw(bytes: number): string {
+  return `${formatBytes(bytes)} (${bytes.toLocaleString()}B)`;
+}
+
 function parseChunkIndexInput(input: string, total: number): ParsedChunkIndices {
   if (total <= 0) {
     return { ok: false, message: "先にQRを生成してください。" };
@@ -116,7 +120,6 @@ function isPdfFile(file: File): boolean {
 }
 
 export default function SendPage() {
-  const [text, setText] = useState("");
   const [sourceData, setSourceData] = useState("");
   const [sourceType, setSourceType] = useState<QRPayloadType>("text");
   const [payloads, setPayloads] = useState<QRPayload[]>([]);
@@ -253,7 +256,6 @@ export default function SendPage() {
       if (jpeg) {
         const dataUrl = `data:image/jpeg;base64,${uint8ArrayToBase64(bytes)}`;
 
-        setText(`[JPEG] ${file.name}`);
         setSourceData(dataUrl);
         setSourceType("jpeg");
         setLoadedFileName(file.name);
@@ -271,7 +273,6 @@ export default function SendPage() {
       if (pdf) {
         const dataUrl = `data:application/pdf;base64,${uint8ArrayToBase64(bytes)}`;
 
-        setText(`[PDF] ${file.name}`);
         setSourceData(dataUrl);
         setSourceType("pdf");
         setLoadedFileName(file.name);
@@ -293,7 +294,6 @@ export default function SendPage() {
 
       const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 
-      setText(decoded);
       setSourceData(decoded);
       setSourceType("text");
       setLoadedFileName(file.name);
@@ -348,14 +348,6 @@ export default function SendPage() {
     void readFileIntoSource(file);
   };
 
-  const handleTextChange = (value: string) => {
-    setText(value);
-    setSourceData(value);
-    setSourceType("text");
-    setLoadedFileName(null);
-    setLoadedFileBytes(0);
-  };
-
   const handleApplyChunkSelection = () => {
     const parsed = parseChunkIndexInput(chunkSelectionInput, payloads.length);
     if (!parsed.ok) {
@@ -384,12 +376,18 @@ export default function SendPage() {
         : transferMode === "erasure"
           ? "Erasure v2"
           : "Legacy v1";
-  const hasTextInput = text.trim().length > 0;
-  const hasSourceInput = sourceType === "text" ? hasTextInput : sourceData.length > 0;
-  const inputStateLabel = hasSourceInput ? "入力済み" : "未入力";
-  const inputStateClassName = hasSourceInput
-    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-    : "border-slate-200 bg-slate-100 text-slate-600";
+  const hasSourceInput =
+    sourceType === "text" ? sourceData.trim().length > 0 : sourceData.length > 0;
+  const currentInputBytes =
+    sourceType === "text" ? new TextEncoder().encode(sourceData).length : loadedFileBytes;
+  const inputHardMaxBytes =
+    sourceType === "jpeg"
+      ? HARD_MAX_JPEG_SIZE
+      : sourceType === "pdf"
+        ? HARD_MAX_PDF_SIZE
+        : HARD_MAX_SIZE;
+  const inputUsagePercent = (currentInputBytes / inputHardMaxBytes) * 100;
+  const remainingBytes = Math.max(inputHardMaxBytes - currentInputBytes, 0);
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-6 py-10">
@@ -401,37 +399,6 @@ export default function SendPage() {
       </header>
 
       <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <label htmlFor="send-text" className="text-sm font-semibold text-slate-700">
-              送信テキスト
-            </label>
-            <span
-              className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${inputStateClassName}`}
-            >
-              {inputStateLabel}
-            </span>
-          </div>
-          <textarea
-            id="send-text"
-            value={text}
-            onChange={(event) => handleTextChange(event.target.value)}
-            rows={6}
-            className={`w-full resize-y rounded-md border p-3 text-sm text-slate-900 ${
-              sourceType === "text"
-                ? hasTextInput
-                  ? "border-emerald-400 bg-emerald-50/30"
-                  : "border-slate-300 bg-white"
-                : "border-slate-200 bg-slate-50"
-            }`}
-            placeholder="ここに送信したいテキストを入力"
-          />
-          <p className="text-xs text-slate-500">
-            {sourceType === "text"
-              ? `文字数: ${text.length}`
-              : `${sourceType.toUpperCase()}ファイルを選択中。テキスト入力でテキスト送信へ切り替わります。`}
-          </p>
-        </div>
         {sourceType === "jpeg" && sourceData.startsWith("data:image/jpeg;base64,") ? (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -473,9 +440,25 @@ export default function SendPage() {
               <p>
                 読み込み済み: {loadedFileName} ({formatBytes(loadedFileBytes)})
               </p>
+              <p>
+                ファイル容量: {formatBytesWithRaw(loadedFileBytes)} / 上限{" "}
+                {formatBytesWithRaw(inputHardMaxBytes)}
+              </p>
               <p className="font-semibold text-emerald-700">
                 入力状態: 入力済み（{sourceType.toUpperCase()}）
               </p>
+            </div>
+          ) : null}
+          {hasSourceInput ? (
+            <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
+              <p>
+                入力容量: {formatBytesWithRaw(currentInputBytes)} / 上限{" "}
+                {formatBytesWithRaw(inputHardMaxBytes)}
+              </p>
+              <p>
+                使用率: {inputUsagePercent.toFixed(1)}% / 残り: {formatBytesWithRaw(remainingBytes)}
+              </p>
+              <p>推奨容量: {formatBytesWithRaw(RECOMMENDED_MAX_SIZE)} 以下</p>
             </div>
           ) : null}
         </div>
@@ -640,6 +623,9 @@ export default function SendPage() {
             <p>
               表示対象:{" "}
               {selectedChunkIndices ? `${selectedChunkIndices.length} chunk` : "全chunk"}
+            </p>
+            <p>
+              入力容量: {formatBytes(currentInputBytes)} / 上限 {formatBytes(inputHardMaxBytes)}
             </p>
             <p>元データ: {formatBytes(originalBytes)}</p>
             <p>圧縮後: {formatBytes(compressedBytes)}</p>
