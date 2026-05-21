@@ -39,6 +39,24 @@ type LastReject = {
   version: string;
 };
 
+type ReceiveRuntimeMetrics = {
+  scannerStartedAtMs: number | null;
+  elapsedMs: number;
+  timeToFirstChunkMs: number | null;
+  timeToCompleteMs: number | null;
+  restoreDurationMs: number | null;
+  acceptedChunkPerSec: number;
+  acceptedChunkCount: number;
+  duplicateChunkCount: number;
+  replacedChunkCount: number;
+  lastAcceptedIndex: number | null;
+};
+
+type ReceiveRuntimeTracker = ReceiveRuntimeMetrics & {
+  lastStatsAtMs: number | null;
+  lastStatsAcceptedChunkCount: number;
+};
+
 const INITIAL_DEBUG_STATS: ReceiveDebugStats = {
   parsedOk: 0,
   jsonParseError: 0,
@@ -54,6 +72,46 @@ const INITIAL_DEBUG_STATS: ReceiveDebugStats = {
   acceptedChunk: 0,
   replacedChunk: 0,
 };
+
+function createInitialRuntimeTracker(): ReceiveRuntimeTracker {
+  return {
+    scannerStartedAtMs: null,
+    elapsedMs: 0,
+    timeToFirstChunkMs: null,
+    timeToCompleteMs: null,
+    restoreDurationMs: null,
+    acceptedChunkPerSec: 0,
+    acceptedChunkCount: 0,
+    duplicateChunkCount: 0,
+    replacedChunkCount: 0,
+    lastAcceptedIndex: null,
+    lastStatsAtMs: null,
+    lastStatsAcceptedChunkCount: 0,
+  };
+}
+
+function toRuntimeMetrics(tracker: ReceiveRuntimeTracker): ReceiveRuntimeMetrics {
+  return {
+    scannerStartedAtMs: tracker.scannerStartedAtMs,
+    elapsedMs: tracker.elapsedMs,
+    timeToFirstChunkMs: tracker.timeToFirstChunkMs,
+    timeToCompleteMs: tracker.timeToCompleteMs,
+    restoreDurationMs: tracker.restoreDurationMs,
+    acceptedChunkPerSec: tracker.acceptedChunkPerSec,
+    acceptedChunkCount: tracker.acceptedChunkCount,
+    duplicateChunkCount: tracker.duplicateChunkCount,
+    replacedChunkCount: tracker.replacedChunkCount,
+    lastAcceptedIndex: tracker.lastAcceptedIndex,
+  };
+}
+
+function formatMetricNumber(value: number, digits = 1): string {
+  return Number.isFinite(value) ? value.toFixed(digits) : "-";
+}
+
+function formatMetricMs(value: number | null): string {
+  return value === null ? "-" : `${formatMetricNumber(value)}ms`;
+}
 
 export default function ReceivePage() {
   const [payloadVersion, setPayloadVersion] = useState<1 | 2 | null>(null);
@@ -72,6 +130,10 @@ export default function ReceivePage() {
   const [error, setError] = useState<string | null>(null);
   const [debugStats, setDebugStats] = useState<ReceiveDebugStats>(INITIAL_DEBUG_STATS);
   const [lastReject, setLastReject] = useState<LastReject | null>(null);
+  const [runtimeMetrics, setRuntimeMetrics] = useState<ReceiveRuntimeMetrics>(() =>
+    toRuntimeMetrics(createInitialRuntimeTracker()),
+  );
+  const [metricsCopied, setMetricsCopied] = useState(false);
   const payloadVersionRef = useRef<1 | 2 | null>(null);
   const sessionRef = useRef<string | null>(null);
   const totalRef = useRef(0);
@@ -81,6 +143,9 @@ export default function ReceivePage() {
   const payloadTypeRef = useRef<QRPayloadType | null>(null);
   const chunksRef = useRef<Map<number, string>>(new Map());
   const erasureShardsRef = useRef<Map<string, QRPayloadV2>>(new Map());
+  const runtimeMetricsRef = useRef<ReceiveRuntimeTracker>(
+    createInitialRuntimeTracker(),
+  );
 
   const receivedIndices = useMemo(
     () =>
@@ -108,8 +173,79 @@ export default function ReceivePage() {
   const receivedCount = payloadVersion === 2 ? erasureShards.size : chunks.size;
   const progressTotal = requiredTotal || total || 0;
 
+  const resetRuntimeMetrics = useCallback(() => {
+    runtimeMetricsRef.current = createInitialRuntimeTracker();
+    setRuntimeMetrics(toRuntimeMetrics(runtimeMetricsRef.current));
+    setMetricsCopied(false);
+  }, []);
+
+  const handleScannerStart = useCallback(() => {
+    const now = performance.now();
+
+    runtimeMetricsRef.current = {
+      ...createInitialRuntimeTracker(),
+      scannerStartedAtMs: now,
+      lastStatsAtMs: now,
+    };
+    setRuntimeMetrics(toRuntimeMetrics(runtimeMetricsRef.current));
+    setMetricsCopied(false);
+  }, []);
+
+  const ensureRuntimeStarted = useCallback(() => {
+    if (runtimeMetricsRef.current.scannerStartedAtMs !== null) {
+      return;
+    }
+
+    const now = performance.now();
+    runtimeMetricsRef.current.scannerStartedAtMs = now;
+    runtimeMetricsRef.current.lastStatsAtMs = now;
+    setRuntimeMetrics(toRuntimeMetrics(runtimeMetricsRef.current));
+  }, []);
+
+  const recordRuntimeEvent = useCallback(
+    (event: "accepted" | "duplicate" | "replaced", index: number) => {
+      ensureRuntimeStarted();
+
+      const now = performance.now();
+      const metrics = runtimeMetricsRef.current;
+      const startedAt = metrics.scannerStartedAtMs ?? now;
+
+      if (event === "accepted") {
+        metrics.acceptedChunkCount += 1;
+        metrics.lastAcceptedIndex = index;
+
+        if (metrics.timeToFirstChunkMs === null) {
+          metrics.timeToFirstChunkMs = now - startedAt;
+        }
+      } else if (event === "duplicate") {
+        metrics.duplicateChunkCount += 1;
+      } else {
+        metrics.replacedChunkCount += 1;
+      }
+    },
+    [ensureRuntimeStarted],
+  );
+
+  const markTransferComplete = useCallback(
+    (restoreDurationMs: number) => {
+      ensureRuntimeStarted();
+
+      const now = performance.now();
+      const metrics = runtimeMetricsRef.current;
+      const startedAt = metrics.scannerStartedAtMs ?? now;
+
+      metrics.elapsedMs = now - startedAt;
+      metrics.timeToCompleteMs = metrics.timeToCompleteMs ?? now - startedAt;
+      metrics.restoreDurationMs = restoreDurationMs;
+      setRuntimeMetrics(toRuntimeMetrics(metrics));
+    },
+    [ensureRuntimeStarted],
+  );
+
   const handleScan = useCallback(
     (qrText: string) => {
+      ensureRuntimeStarted();
+
       const parsed = parsePayloadDetailed(qrText);
       if (!parsed.ok) {
         const preview =
@@ -243,6 +379,7 @@ export default function ReceivePage() {
         const existing = erasureShardsRef.current.get(key);
 
         if (existing && existing.data === payload.data) {
+          recordRuntimeEvent("duplicate", payload.index);
           setDebugStats((prev) => ({ ...prev, duplicateChunk: prev.duplicateChunk + 1 }));
           return;
         }
@@ -251,6 +388,7 @@ export default function ReceivePage() {
         next.set(key, payload);
         erasureShardsRef.current = next;
         setErasureShards(next);
+        recordRuntimeEvent(existing ? "replaced" : "accepted", payload.index);
         setDebugStats((prev) =>
           existing
             ? { ...prev, replacedChunk: prev.replacedChunk + 1 }
@@ -262,6 +400,7 @@ export default function ReceivePage() {
       const existingChunk = chunksRef.current.get(payload.index);
 
       if (existingChunk === payload.data) {
+        recordRuntimeEvent("duplicate", payload.index);
         setDebugStats((prev) => ({ ...prev, duplicateChunk: prev.duplicateChunk + 1 }));
         return;
       }
@@ -270,14 +409,47 @@ export default function ReceivePage() {
       next.set(payload.index, payload.data);
       chunksRef.current = next;
       setChunks(next);
+      recordRuntimeEvent(
+        typeof existingChunk === "string" ? "replaced" : "accepted",
+        payload.index,
+      );
       setDebugStats((prev) =>
         typeof existingChunk === "string"
           ? { ...prev, replacedChunk: prev.replacedChunk + 1 }
           : { ...prev, acceptedChunk: prev.acceptedChunk + 1 },
       );
     },
-    [],
+    [ensureRuntimeStarted, recordRuntimeEvent],
   );
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const metrics = runtimeMetricsRef.current;
+
+      if (metrics.scannerStartedAtMs === null) {
+        return;
+      }
+
+      const now = performance.now();
+      const lastStatsAtMs = metrics.lastStatsAtMs;
+
+      metrics.elapsedMs = now - metrics.scannerStartedAtMs;
+
+      if (lastStatsAtMs !== null) {
+        const elapsedMs = now - lastStatsAtMs;
+        const acceptedDelta =
+          metrics.acceptedChunkCount - metrics.lastStatsAcceptedChunkCount;
+        metrics.acceptedChunkPerSec =
+          elapsedMs > 0 ? (acceptedDelta / elapsedMs) * 1000 : 0;
+      }
+
+      metrics.lastStatsAtMs = now;
+      metrics.lastStatsAcceptedChunkCount = metrics.acceptedChunkCount;
+      setRuntimeMetrics(toRuntimeMetrics(metrics));
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!checksum || total <= 0 || result || !payloadVersion) {
@@ -296,11 +468,13 @@ export default function ReceivePage() {
 
     const restore = async () => {
       try {
+        const restoreStartedAt = performance.now();
         const restored =
           payloadVersion === 2
             ? restoreErasurePayload(erasureShards)
             : restorePayload(chunks, total);
         const restoredChecksum = await sha256(restored);
+        const restoreDurationMs = performance.now() - restoreStartedAt;
 
         if (isCancelled) {
           return;
@@ -312,6 +486,7 @@ export default function ReceivePage() {
         }
 
         setError(null);
+        markTransferComplete(restoreDurationMs);
         setResult(restored);
       } catch (restoreError) {
         const message =
@@ -327,7 +502,15 @@ export default function ReceivePage() {
     return () => {
       isCancelled = true;
     };
-  }, [chunks, checksum, erasureShards, payloadVersion, result, total]);
+  }, [
+    chunks,
+    checksum,
+    erasureShards,
+    markTransferComplete,
+    payloadVersion,
+    result,
+    total,
+  ]);
 
   const handleCopy = async () => {
     if (!result) {
@@ -367,6 +550,31 @@ export default function ReceivePage() {
     setError(null);
     setLastReject(null);
     setDebugStats(INITIAL_DEBUG_STATS);
+    resetRuntimeMetrics();
+  };
+
+  const handleCopyMetrics = async () => {
+    const summary = {
+      generatedAt: new Date().toISOString(),
+      sessionId: currentSessionId,
+      payloadVersion,
+      payloadType,
+      total,
+      requiredTotal,
+      groupCount,
+      receivedCount,
+      progressTotal,
+      debugStats,
+      runtimeMetrics,
+    };
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(summary, null, 2));
+      setMetricsCopied(true);
+      window.setTimeout(() => setMetricsCopied(false), 1200);
+    } catch {
+      setError("計測サマリーのコピーに失敗しました。ブラウザの権限を確認してください。");
+    }
   };
 
   return (
@@ -379,7 +587,11 @@ export default function ReceivePage() {
       </header>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <QRScanner onScan={handleScan} onError={setError} />
+        <QRScanner
+          onScan={handleScan}
+          onError={setError}
+          onScannerStart={handleScannerStart}
+        />
 
         <div className="space-y-4">
           <TransferProgress
@@ -415,6 +627,17 @@ export default function ReceivePage() {
           </section>
           <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-700">デバッグ</h2>
+            <div className="mb-3 grid gap-x-4 gap-y-1 rounded-md border border-slate-200 bg-white p-3 sm:grid-cols-2">
+              <p>elapsed: {formatMetricMs(runtimeMetrics.elapsedMs)}</p>
+              <p>accepted/sec: {formatMetricNumber(runtimeMetrics.acceptedChunkPerSec)}</p>
+              <p>time to first chunk: {formatMetricMs(runtimeMetrics.timeToFirstChunkMs)}</p>
+              <p>time to complete: {formatMetricMs(runtimeMetrics.timeToCompleteMs)}</p>
+              <p>restore duration: {formatMetricMs(runtimeMetrics.restoreDurationMs)}</p>
+              <p>runtime accepted: {runtimeMetrics.acceptedChunkCount}</p>
+              <p>runtime duplicate: {runtimeMetrics.duplicateChunkCount}</p>
+              <p>runtime replaced: {runtimeMetrics.replacedChunkCount}</p>
+              <p>last accepted index: {runtimeMetrics.lastAcceptedIndex ?? "-"}</p>
+            </div>
             <p>parsed ok: {debugStats.parsedOk}</p>
             <p>json parse error: {debugStats.jsonParseError}</p>
             <p>shape mismatch: {debugStats.shapeMismatch}</p>
@@ -433,6 +656,13 @@ export default function ReceivePage() {
                 <p className="break-all">last reject preview: {lastReject.preview}</p>
               </>
             ) : null}
+            <button
+              type="button"
+              onClick={() => void handleCopyMetrics()}
+              className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700"
+            >
+              {metricsCopied ? "コピー済み" : "計測サマリーをコピー"}
+            </button>
           </section>
           <button
             type="button"

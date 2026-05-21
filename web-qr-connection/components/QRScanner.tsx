@@ -1,13 +1,19 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 type QRScannerProps = {
   onScan: (decodedText: string) => void;
   onError: (message: string) => void;
+  onScannerStart?: () => void;
+  onScannerStop?: () => void;
 };
 
 type QRScannerDebugStats = {
+  configuredFps: number;
+  scanCallbackCount: number;
+  scanCallbacksPerSec: number;
+  lastScanIntervalMs: number | null;
   decodedCount: number;
   noCodeFrameCount: number;
   frameErrorCount: number;
@@ -20,8 +26,13 @@ type FrameScanError = {
 };
 
 const NO_CODE_FOUND_ERROR_TYPE = 2;
+const SCANNER_FPS = 12;
 
 const INITIAL_DEBUG_STATS: QRScannerDebugStats = {
+  configuredFps: SCANNER_FPS,
+  scanCallbackCount: 0,
+  scanCallbacksPerSec: 0,
+  lastScanIntervalMs: null,
   decodedCount: 0,
   noCodeFrameCount: 0,
   frameErrorCount: 0,
@@ -31,6 +42,28 @@ const INITIAL_DEBUG_STATS: QRScannerDebugStats = {
 
 function createInitialDebugStats(): QRScannerDebugStats {
   return { ...INITIAL_DEBUG_STATS };
+}
+
+type ScanTiming = {
+  lastCallbackAt: number | null;
+  lastStatsAt: number | null;
+  lastStatsCallbackCount: number;
+};
+
+function createInitialScanTiming(): ScanTiming {
+  return {
+    lastCallbackAt: null,
+    lastStatsAt: null,
+    lastStatsCallbackCount: 0,
+  };
+}
+
+function formatMetricNumber(value: number, digits = 1): string {
+  return Number.isFinite(value) ? value.toFixed(digits) : "-";
+}
+
+function formatMetricMs(value: number | null): string {
+  return value === null ? "-" : `${formatMetricNumber(value)}ms`;
 }
 
 function getCameraErrorName(error: unknown): string {
@@ -127,7 +160,12 @@ function getQrboxSize(
   return { width: edge, height: edge };
 }
 
-export function QRScanner({ onScan, onError }: QRScannerProps) {
+export function QRScanner({
+  onScan,
+  onError,
+  onScannerStart,
+  onScannerStop,
+}: QRScannerProps) {
   const scannerRef = useRef<{
     stop: () => Promise<void>;
     clear: () => void;
@@ -139,6 +177,7 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
     createInitialDebugStats,
   );
   const debugRef = useRef<QRScannerDebugStats>(createInitialDebugStats());
+  const scanTimingRef = useRef<ScanTiming>(createInitialScanTiming());
   const [runtimeInfo] = useState<{
     origin: string;
     isSecureContext: boolean;
@@ -155,7 +194,7 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
   const rawId = useId();
   const containerId = `qr-reader-${rawId.replace(/:/g, "")}`;
 
-  const stopScanner = async () => {
+  const stopScanner = useCallback(async () => {
     const scanner = scannerRef.current;
     if (!scanner) {
       return;
@@ -175,6 +214,17 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
 
     scannerRef.current = null;
     setIsScanning(false);
+    onScannerStop?.();
+  }, [onScannerStop]);
+
+  const recordScanCallback = () => {
+    const now = performance.now();
+    const lastCallbackAt = scanTimingRef.current.lastCallbackAt;
+
+    debugRef.current.scanCallbackCount += 1;
+    debugRef.current.lastScanIntervalMs =
+      lastCallbackAt === null ? null : now - lastCallbackAt;
+    scanTimingRef.current.lastCallbackAt = now;
   };
 
   const startScanner = async () => {
@@ -211,6 +261,7 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
       ...createInitialDebugStats(),
       lastFrameStatus: "カメラ起動中",
     };
+    scanTimingRef.current = createInitialScanTiming();
     setDebugStats({ ...debugRef.current });
 
     try {
@@ -224,10 +275,11 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
       });
       scannerRef.current = scanner;
       const scanConfig = {
-        fps: 12,
+        fps: SCANNER_FPS,
         qrbox: getQrboxSize,
       };
       const onScanSuccess = (decodedText: string) => {
+        recordScanCallback();
         debugRef.current.decodedCount += 1;
         debugRef.current.lastFrameStatus = "読み取り成功";
         debugRef.current.lastFrameError = "";
@@ -237,6 +289,8 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
         errorMessage: string,
         error?: FrameScanError,
       ) => {
+        recordScanCallback();
+
         if (isNoCodeFoundFrame(errorMessage, error)) {
           debugRef.current.noCodeFrameCount += 1;
           debugRef.current.lastFrameStatus = "QR探索中";
@@ -279,6 +333,7 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
       }
 
       setIsScanning(true);
+      onScannerStart?.();
     } catch (error) {
       const message = formatCameraError(error);
       setLocalError(message);
@@ -294,6 +349,19 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
+      const now = performance.now();
+      const timing = scanTimingRef.current;
+
+      if (timing.lastStatsAt !== null) {
+        const elapsedMs = now - timing.lastStatsAt;
+        const callbackDelta =
+          debugRef.current.scanCallbackCount - timing.lastStatsCallbackCount;
+        debugRef.current.scanCallbacksPerSec =
+          elapsedMs > 0 ? (callbackDelta / elapsedMs) * 1000 : 0;
+      }
+
+      timing.lastStatsAt = now;
+      timing.lastStatsCallbackCount = debugRef.current.scanCallbackCount;
       setDebugStats({ ...debugRef.current });
     }, 1000);
 
@@ -301,7 +369,7 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
       window.clearInterval(timer);
       void stopScanner();
     };
-  }, []);
+  }, [stopScanner]);
 
   return (
     <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -332,6 +400,10 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
         </p>
       ) : null}
       <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+        <p>configured fps: {debugStats.configuredFps}</p>
+        <p>scan callbacks: {debugStats.scanCallbackCount}</p>
+        <p>scan callbacks/sec: {formatMetricNumber(debugStats.scanCallbacksPerSec)}</p>
+        <p>last scan interval: {formatMetricMs(debugStats.lastScanIntervalMs)}</p>
         <p>decoded: {debugStats.decodedCount}</p>
         <p>QR未検出フレーム: {debugStats.noCodeFrameCount}</p>
         <p>decoder errors: {debugStats.frameErrorCount}</p>
