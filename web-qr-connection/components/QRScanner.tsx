@@ -6,6 +6,7 @@ type QRScannerProps = {
   onScan: (decodedText: string) => void;
   onError: (message: string) => void;
   compact?: boolean;
+  showDebug?: boolean;
 };
 
 type QRScannerDebugStats = {
@@ -128,7 +129,12 @@ function getQrboxSize(
   return { width: edge, height: edge };
 }
 
-export function QRScanner({ onScan, onError, compact = false }: QRScannerProps) {
+export function QRScanner({
+  onScan,
+  onError,
+  compact = false,
+  showDebug = true,
+}: QRScannerProps) {
   const scannerRef = useRef<{
     stop: () => Promise<void>;
     clear: () => void;
@@ -335,46 +341,50 @@ export function QRScanner({ onScan, onError, compact = false }: QRScannerProps) 
           停止
         </button>
       </div>
-      {compact ? (
-        <details className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-          <summary className="cursor-pointer font-medium text-slate-700">
-            診断情報
-          </summary>
-          <div className="mt-2 space-y-1">
-            {runtimeInfo ? (
-              <p className="text-slate-500">
-                {runtimeInfo.isSecureContext ? "secure context" : "insecure context"} /{" "}
-                {runtimeInfo.origin}
-              </p>
-            ) : null}
-            <p>decoded: {debugStats.decodedCount}</p>
-            <p>QR未検出フレーム: {debugStats.noCodeFrameCount}</p>
-            <p>decoder errors: {debugStats.frameErrorCount}</p>
-            <p>scan status: {debugStats.lastFrameStatus}</p>
-            {debugStats.lastFrameError ? (
-              <p className="break-all">last decoder detail: {debugStats.lastFrameError}</p>
-            ) : null}
-          </div>
-        </details>
-      ) : (
-        <>
-          {runtimeInfo ? (
-            <p className="text-xs text-slate-500">
-              {runtimeInfo.isSecureContext ? "secure context" : "insecure context"} /{" "}
-              {runtimeInfo.origin}
-            </p>
-          ) : null}
-          <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-            <p>decoded: {debugStats.decodedCount}</p>
-            <p>QR未検出フレーム: {debugStats.noCodeFrameCount}</p>
-            <p>decoder errors: {debugStats.frameErrorCount}</p>
-            <p>scan status: {debugStats.lastFrameStatus}</p>
-            {debugStats.lastFrameError ? (
-              <p className="break-all">last decoder detail: {debugStats.lastFrameError}</p>
-            ) : null}
-          </div>
-        </>
-      )}
+      {showDebug
+        ? compact
+          ? (
+            <details className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+              <summary className="cursor-pointer font-medium text-slate-700">
+                診断情報
+              </summary>
+              <div className="mt-2 space-y-1">
+                {runtimeInfo ? (
+                  <p className="text-slate-500">
+                    {runtimeInfo.isSecureContext ? "secure context" : "insecure context"} /{" "}
+                    {runtimeInfo.origin}
+                  </p>
+                ) : null}
+                <p>decoded: {debugStats.decodedCount}</p>
+                <p>QR未検出フレーム: {debugStats.noCodeFrameCount}</p>
+                <p>decoder errors: {debugStats.frameErrorCount}</p>
+                <p>scan status: {debugStats.lastFrameStatus}</p>
+                {debugStats.lastFrameError ? (
+                  <p className="break-all">last decoder detail: {debugStats.lastFrameError}</p>
+                ) : null}
+              </div>
+            </details>
+          )
+          : (
+            <>
+              {runtimeInfo ? (
+                <p className="text-xs text-slate-500">
+                  {runtimeInfo.isSecureContext ? "secure context" : "insecure context"} /{" "}
+                  {runtimeInfo.origin}
+                </p>
+              ) : null}
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                <p>decoded: {debugStats.decodedCount}</p>
+                <p>QR未検出フレーム: {debugStats.noCodeFrameCount}</p>
+                <p>decoder errors: {debugStats.frameErrorCount}</p>
+                <p>scan status: {debugStats.lastFrameStatus}</p>
+                {debugStats.lastFrameError ? (
+                  <p className="break-all">last decoder detail: {debugStats.lastFrameError}</p>
+                ) : null}
+              </div>
+            </>
+          )
+        : null}
       {localError ? <p className="text-sm text-red-600">{localError}</p> : null}
     </section>
   );

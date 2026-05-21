@@ -70,6 +70,7 @@ export default function ReceivePage() {
   const [result, setResult] = useState("");
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showDebug, setShowDebug] = useState(false);
   const [debugStats, setDebugStats] = useState<ReceiveDebugStats>(INITIAL_DEBUG_STATS);
   const [lastReject, setLastReject] = useState<LastReject | null>(null);
   const payloadVersionRef = useRef<1 | 2 | null>(null);
@@ -358,7 +359,12 @@ export default function ReceivePage() {
       </header>
 
       <section className="grid gap-3 lg:grid-cols-2">
-        <QRScanner onScan={handleScan} onError={setError} compact />
+        <QRScanner
+          onScan={handleScan}
+          onError={setError}
+          compact
+          showDebug={showDebug}
+        />
 
         <div className="space-y-3">
           <TransferProgress
@@ -377,36 +383,50 @@ export default function ReceivePage() {
             </p>
           ) : null}
 
-          <details className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-            <summary className="cursor-pointer text-sm font-semibold text-slate-700">
-              デバッグ詳細
-            </summary>
-            <div className="mt-3 space-y-3">
-              <section className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                <h2 className="text-sm font-semibold text-slate-700">デバッグ</h2>
-                <p>parsed ok: {debugStats.parsedOk}</p>
-                <p>json parse error: {debugStats.jsonParseError}</p>
-                <p>shape mismatch: {debugStats.shapeMismatch}</p>
-                <p>invalid total/index: {debugStats.invalidTotal} / {debugStats.invalidIndex}</p>
-                <p>session mismatch: {debugStats.ignoredSessionMismatch}</p>
-                <p>total mismatch: {debugStats.ignoredTotalMismatch}</p>
-                <p>checksum mismatch: {debugStats.ignoredChecksumMismatch}</p>
-                <p>type mismatch: {debugStats.ignoredTypeMismatch}</p>
-                <p>version mismatch: {debugStats.ignoredVersionMismatch}</p>
-                <p>accepted/duplicate/replaced: {debugStats.acceptedChunk} / {debugStats.duplicateChunk} / {debugStats.replacedChunk}</p>
-                {lastReject ? (
-                  <>
-                    <p>last reject issue: {lastReject.issue}</p>
-                    <p>last reject version: {lastReject.version}</p>
-                    <p>last reject keys: {lastReject.keys.length ? lastReject.keys.join(", ") : "-"}</p>
-                    <p className="break-all">last reject preview: {lastReject.preview}</p>
-                  </>
-                ) : null}
-              </section>
-            </div>
-          </details>
+          {showDebug ? (
+            <details className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+                デバッグ詳細
+              </summary>
+              <div className="mt-3 space-y-3">
+                <section className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                  <h2 className="text-sm font-semibold text-slate-700">デバッグ</h2>
+                  <p>parsed ok: {debugStats.parsedOk}</p>
+                  <p>json parse error: {debugStats.jsonParseError}</p>
+                  <p>shape mismatch: {debugStats.shapeMismatch}</p>
+                  <p>invalid total/index: {debugStats.invalidTotal} / {debugStats.invalidIndex}</p>
+                  <p>session mismatch: {debugStats.ignoredSessionMismatch}</p>
+                  <p>total mismatch: {debugStats.ignoredTotalMismatch}</p>
+                  <p>checksum mismatch: {debugStats.ignoredChecksumMismatch}</p>
+                  <p>type mismatch: {debugStats.ignoredTypeMismatch}</p>
+                  <p>version mismatch: {debugStats.ignoredVersionMismatch}</p>
+                  <p>accepted/duplicate/replaced: {debugStats.acceptedChunk} / {debugStats.duplicateChunk} / {debugStats.replacedChunk}</p>
+                  {lastReject ? (
+                    <>
+                      <p>last reject issue: {lastReject.issue}</p>
+                      <p>last reject version: {lastReject.version}</p>
+                      <p>last reject keys: {lastReject.keys.length ? lastReject.keys.join(", ") : "-"}</p>
+                      <p className="break-all">last reject preview: {lastReject.preview}</p>
+                    </>
+                  ) : null}
+                </section>
+              </div>
+            </details>
+          ) : null}
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowDebug((prev) => !prev)}
+              aria-pressed={showDebug}
+              className={`rounded-md border px-4 py-2 text-sm font-medium ${
+                showDebug
+                  ? "border-slate-700 bg-slate-700 text-white"
+                  : "border-slate-300 text-slate-700"
+              }`}
+            >
+              デバッグ: {showDebug ? "ON" : "OFF"}
+            </button>
             <button
               type="button"
               onClick={handleReset}
