@@ -384,27 +384,54 @@ export default function SendPage() {
         : transferMode === "erasure"
           ? "Erasure v2"
           : "Legacy v1";
+  const hasTextInput = text.trim().length > 0;
+  const hasSourceInput = sourceType === "text" ? hasTextInput : sourceData.length > 0;
+  const inputStateLabel = hasSourceInput ? "入力済み" : "未入力";
+  const inputStateClassName = hasSourceInput
+    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+    : "border-slate-200 bg-slate-100 text-slate-600";
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-6 py-10">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">PC → スマホ QR転送</h1>
+        <h1 className="text-2xl font-bold text-slate-900">QR転送 送信側</h1>
         <Link href="/" className="text-sm font-medium text-slate-600 underline">
           トップへ戻る
         </Link>
       </header>
 
       <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <label htmlFor="source-text" className="text-sm font-semibold text-slate-700">
-          テキスト入力
-        </label>
-        <textarea
-          id="source-text"
-          value={text}
-          onChange={(event) => handleTextChange(event.target.value)}
-          className="h-48 w-full resize-y rounded-md border border-slate-300 p-3 text-sm text-slate-800"
-          placeholder="転送したいテキストやURLを入力"
-        />
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <label htmlFor="send-text" className="text-sm font-semibold text-slate-700">
+              送信テキスト
+            </label>
+            <span
+              className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${inputStateClassName}`}
+            >
+              {inputStateLabel}
+            </span>
+          </div>
+          <textarea
+            id="send-text"
+            value={text}
+            onChange={(event) => handleTextChange(event.target.value)}
+            rows={6}
+            className={`w-full resize-y rounded-md border p-3 text-sm text-slate-900 ${
+              sourceType === "text"
+                ? hasTextInput
+                  ? "border-emerald-400 bg-emerald-50/30"
+                  : "border-slate-300 bg-white"
+                : "border-slate-200 bg-slate-50"
+            }`}
+            placeholder="ここに送信したいテキストを入力"
+          />
+          <p className="text-xs text-slate-500">
+            {sourceType === "text"
+              ? `文字数: ${text.length}`
+              : `${sourceType.toUpperCase()}ファイルを選択中。テキスト入力でテキスト送信へ切り替わります。`}
+          </p>
+        </div>
         {sourceType === "jpeg" && sourceData.startsWith("data:image/jpeg;base64,") ? (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -442,9 +469,14 @@ export default function SendPage() {
             </span>
           </div>
           {loadedFileName ? (
-            <p className="mt-2 text-xs text-slate-600">
-              読み込み済み: {loadedFileName} ({formatBytes(loadedFileBytes)})
-            </p>
+            <div className="mt-2 space-y-1 text-xs text-slate-600">
+              <p>
+                読み込み済み: {loadedFileName} ({formatBytes(loadedFileBytes)})
+              </p>
+              <p className="font-semibold text-emerald-700">
+                入力状態: 入力済み（{sourceType.toUpperCase()}）
+              </p>
+            </div>
           ) : null}
         </div>
         <button
