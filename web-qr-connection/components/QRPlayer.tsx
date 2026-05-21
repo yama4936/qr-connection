@@ -71,6 +71,8 @@ export function QRPlayer({
   );
   const metricsRef = useRef<QRPlayerMetrics>(createInitialPlayerMetrics());
   const timingRef = useRef<QRPlayerTiming>(createInitialPlayerTiming());
+  const previousPayloadsRef = useRef(payloads);
+  const previousIsPlayingRef = useRef(isPlaying);
   const playbackIndices = useMemo(() => {
     const allIndices = payloads.map((_, index) => index);
     if (!displayIndices || displayIndices.length === 0) {
@@ -96,7 +98,22 @@ export function QRPlayer({
   }, [currentIndex, onCurrentIndexChange]);
 
   useEffect(() => {
-    if (payloads.length === 0) {
+    const payloadsChanged = previousPayloadsRef.current !== payloads;
+    const playbackRestarted = !previousIsPlayingRef.current && isPlaying;
+
+    if (payloadsChanged || playbackRestarted) {
+      const nextMetrics = createInitialPlayerMetrics();
+      metricsRef.current = nextMetrics;
+      timingRef.current = createInitialPlayerTiming();
+      setMetrics({ ...nextMetrics });
+    }
+
+    previousPayloadsRef.current = payloads;
+    previousIsPlayingRef.current = isPlaying;
+  }, [isPlaying, payloads]);
+
+  useEffect(() => {
+    if (!isPlaying || payloads.length === 0) {
       return;
     }
 
@@ -113,7 +130,7 @@ export function QRPlayer({
     metricsRef.current.actualSwitchIntervalMs = actualSwitchIntervalMs;
     metricsRef.current.switchJitterMs =
       actualSwitchIntervalMs === null ? null : actualSwitchIntervalMs - intervalMs;
-  }, [currentIndex, intervalMs, payloads.length]);
+  }, [currentIndex, intervalMs, isPlaying, payloads]);
 
   useEffect(() => {
     if (!canvasRef.current || !currentPayload) {
