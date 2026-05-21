@@ -120,6 +120,7 @@ function isPdfFile(file: File): boolean {
 }
 
 export default function SendPage() {
+  const [text, setText] = useState("");
   const [sourceData, setSourceData] = useState("");
   const [sourceType, setSourceType] = useState<QRPayloadType>("text");
   const [payloads, setPayloads] = useState<QRPayload[]>([]);
@@ -256,6 +257,7 @@ export default function SendPage() {
       if (jpeg) {
         const dataUrl = `data:image/jpeg;base64,${uint8ArrayToBase64(bytes)}`;
 
+        setText(`[JPEG] ${file.name}`);
         setSourceData(dataUrl);
         setSourceType("jpeg");
         setLoadedFileName(file.name);
@@ -273,6 +275,7 @@ export default function SendPage() {
       if (pdf) {
         const dataUrl = `data:application/pdf;base64,${uint8ArrayToBase64(bytes)}`;
 
+        setText(`[PDF] ${file.name}`);
         setSourceData(dataUrl);
         setSourceType("pdf");
         setLoadedFileName(file.name);
@@ -294,6 +297,7 @@ export default function SendPage() {
 
       const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 
+      setText(decoded);
       setSourceData(decoded);
       setSourceType("text");
       setLoadedFileName(file.name);
@@ -444,31 +448,18 @@ export default function SendPage() {
                 ファイル容量: {formatBytesWithRaw(loadedFileBytes)} / 上限{" "}
                 {formatBytesWithRaw(inputHardMaxBytes)}
               </p>
-              <p className="font-semibold text-emerald-700">
-                入力状態: 入力済み（{sourceType.toUpperCase()}）
-              </p>
-            </div>
-          ) : null}
-          {hasSourceInput ? (
-            <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
-              <p>
-                入力容量: {formatBytesWithRaw(currentInputBytes)} / 上限{" "}
-                {formatBytesWithRaw(inputHardMaxBytes)}
-              </p>
-              <p>
-                使用率: {inputUsagePercent.toFixed(1)}% / 残り: {formatBytesWithRaw(remainingBytes)}
-              </p>
-              <p>推奨容量: {formatBytesWithRaw(RECOMMENDED_MAX_SIZE)} 以下</p>
             </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          onClick={() => void handleGenerate()}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white"
-        >
-          QR生成
-        </button>
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={() => void handleGenerate()}
+            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white"
+          >
+            QR生成
+          </button>
+        </div>
         {warning ? <p className="text-sm text-amber-700">{warning}</p> : null}
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
       </section>
